@@ -1,6 +1,5 @@
-from src.core.bsgp import BSGP_Layer
-from src.core.likelihoods import ProjectedGaussian
-from src.misc import torch_utils
+from src.core.bsgp import BSGP
+from .core.kernels import RBF
 
 from tqdm import tqdm
 import torch
@@ -8,8 +7,7 @@ import numpy as np
 
 from scipy.stats import norm
 from scipy.special import logsumexp
-from core.likelihoods import Gaussian
-from models import SequenceModel
+from .core.likelihoods import Gaussian
 
 
 def build_model(X, Y, args):
@@ -17,27 +15,35 @@ def build_model(X, Y, args):
     Builds a model object of gpode.SequenceModel based on the MoCap experimental setup
 
     @param data_full_ys: data sequence in observed space (N,T,D_full)
-    @param data_pca_ys: data sequence in latent/PCA space (N,T,D)
     @param latent2data_projection: an object of misc.mocap_utils.Latent2DataProjector class
     @param args: model setup arguments
     @return: an object of gpode.SequenceModel class
     """
     N, D = X.shape[0], X.shape[1]
 
-    gp = BSGP_Layer(D_in=D,
-                     D_out=D,
-                     S=args.num_features,
-                     M=args.num_inducing,
-                     dimwise=args.dimwise,
-                     q_diag=args.q_diag)
+    # define likelihood
+    lik = Gaussian(ndim = D)
 
-    likelihood = Gaussian(np.var(Y, 0))
+    # define kernels
+    kernels = []
+    for i in range(args.n_layers):
+        D_out = 196 if i >= 1 and D > 700 else D
+        kernels.append(RBF(D_in=D, D_out=D_out, dimwise=False))
 
-    model = SequenceModel(num_observations=N,
-                          likelihood=likelihood,
-                          ts_dense_scale=args.ts_dense_scale)
+    gp = BSGP(X=X, Y=Y, 
+              num_inducing = args.num_inducing,
+              kernels = kernels, 
+              lik = lik, 
+              minibatch_size = args.minibatch_size, 
+              window_size = args.window_size, 
+              output_dim= args.output_dim, 
+              adam_lr = args.adam_lr, 
+              prior_inducing_type = args.prior_inducing_type, 
+              full_cov = args.full_cov, 
+              epsilon = args.epsilon, 
+              mdecay = args.mdecay)
 
-    return model
+    return gp
 
 
 def compute_loss(model, ys, ts, **kwargs):
@@ -133,6 +139,6 @@ def compute_inducing_variables_for_plotting(model):
         u = torch.einsum('mde, dnm -> nde', u.unsqueeze(2), Lu).squeeze(2)  # DxMx1
     else:
         u = torch.einsum('md, mn -> nd', u, Lu.T)  # NxD
-    u = torch_utils.torch2numpy(u) / 1.5
-    z = torch_utils.torch2numpy(z)
+    #u = torch_utils.torch2numpy(u) / 1.5
+    #z = torch_utils.torch2numpy(z)
     return u, z

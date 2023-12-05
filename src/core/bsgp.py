@@ -1,9 +1,9 @@
 import torch
-from kernels import RBF
+from .kernels import RBF
 from src.misc.param import Param
 from src.misc import transforms
-import conditionals
-from priors import Strauss
+from .conditionals import conditional
+from .priors import Strauss
 from scipy.cluster.vq import kmeans2
 import numpy as np
 import torch.nn as nn
@@ -22,25 +22,14 @@ def get_rand(x, full_cov=False):
 
     
 class BSGP_Layer(torch.nn.Module): 
-    ## Like Layer class dpg_model.py > Layer
 
-    def __init__(self, D_in, D_out, M, fixed_mean, kernel, prior_type='Strauss', full_cov=False, q_diag=False, dimwise=True):
-        """
-        @param D_in: Number of input dimensions
-        @param D_out: Number of output dimensions
-        @param M: Number of inducing points
-        @param q_diag: Diagonal approximation for inducing posterior
-        @param dimwise: If True, different kernel parameters are given to output dimensions
-        """
-
-        self.kernel = kernel
-        self.D_out = D_out
-        self.D_in = D_in
-        self.M, self.fixed_mean = M, fixed_mean
+    def __init__(self, kern, outputs, num_inducing, fixed_mean, X, full_cov, prior_type="uniform"):
+        super(BSGP_Layer, self).__init__()
+        self.inputs, self.outputs, self.kernel = kern.input_dim, outputs, kern
+        self.M, self.fixed_mean = num_inducing, fixed_mean
         self.full_cov = full_cov
         self.prior_type = prior_type
         self.X = X
-        #self.Kc = commutation_matrix(self.X.shape[1], self.X.shape[1])
         if prior_type == "strauss":
             self.pZ = Strauss(R=0.5)
 
@@ -64,7 +53,7 @@ class BSGP_Layer(torch.nn.Module):
 
     def conditional(self, X):
 
-        mean, var, self.Lm = conditionals.conditional(X, self.Z, self.kernel, self.U, white=True, full_cov=self.full_cov, return_Lm=True)
+        mean, var, self.Lm = conditional(X, self.Z, self.kernel, self.U, white=True, full_cov=self.full_cov, return_Lm=True)
         
         if self.fixed_mean:
             mean += torch.matmul(X, torch.cast(self.mean, torch.float64))
@@ -97,11 +86,11 @@ class BSGP_Layer(torch.nn.Module):
     
 
 class BSGP(torch.nn.Module):
-    def __init__(self, X, Y, n_inducing, kernels, likelihood, minibatch_size, window_size, output_dim=None,
-                 adam_lr=0.01, prior_type="uniform", full_cov=False, epsilon=0.01, mdecay=0.05,):
-        self.n_inducing = n_inducing
+    def __init__(self, X=None, Y=None, num_inducing=100, kernels=[], lik=None, minibatch_size=100, window_size=64, output_dim=None, adam_lr=0.01, prior_inducing_type="uniform", full_cov=False, epsilon=0.01, mdecay=0.05):
+        super(BSGP, self).__init__()
+        self.n_inducing = num_inducing
         self.kernels = kernels
-        self.likelihood = likelihood
+        self.likelihood = lik
         self.minibatch_size = minibatch_size
         self.window_size = window_size
 
@@ -114,8 +103,14 @@ class BSGP(torch.nn.Module):
         self.layers = []
         X_running = X.copy()
         for l in range(n_layers):
-            outputs = self.kernels[l+1].input_dim if l+1 < n_layers else self.output_dim#Y.shape[1]
-            self.layers.append(BSGP_Layer(self.kernels[l], outputs, n_inducing, fixed_mean=(l+1 < n_layers), X=X_running, full_cov=full_cov if l+1<n_layers else False, prior_type=prior_type))
+            outputs = self.kernels[l+1].D_in if l+1 < n_layers else self.output_dim
+            self.layers.append(BSGP_Layer(self.kernels[l], 
+                                          outputs, 
+                                          num_inducing, 
+                                          fixed_mean=(l+1 < n_layers),
+                                          X=X_running, 
+                                          full_cov=full_cov if l+1<n_layers else False, 
+                                          prior_type=prior_inducing_type))
             X_running = np.matmul(X_running, self.layers[-1].mean)
 
         variables = []
