@@ -25,7 +25,7 @@ class BSGP_Layer(torch.nn.Module):
 
     def __init__(self, kern, outputs, num_inducing, fixed_mean, X, full_cov, prior_type="uniform"):
         super(BSGP_Layer, self).__init__()
-        self.inputs, self.outputs, self.kernel = kern.input_dim, outputs, kern
+        self.inputs, self.outputs, self.kernel = kern.D_in, outputs, kern
         self.M, self.fixed_mean = num_inducing, fixed_mean
         self.full_cov = full_cov
         self.prior_type = prior_type
@@ -37,17 +37,17 @@ class BSGP_Layer(torch.nn.Module):
             perm = np.random.permutation(100000)
             X = X[perm]
 
-        self.Z = Param(kmeans2(X, self.M, minit='points')[0], dtype=np.float64, requires_grad=False, transform=transforms.SoftPlus(), name='Inducing locations Z') 
+        self.Z = Param(kmeans2(X, self.M, minit='points')[0], requires_grad=False, transform=transforms.SoftPlus(), name='Inducing locations Z') 
         
-        if self.D_in == self.outputs:
+        if self.inputs == self.outputs:
             self.mean = np.eye(self.inputs)
-        elif self.D_in < self.D_out:
+        elif self.inputs < self.D_out:
             self.mean = np.concatenate([np.eye(self.inputs), np.zeros((self.inputs, self.outputs - self.inputs))], axis=1)
         else:
             _, _, V = np.linalg.svd(X, full_matrices=False)
             self.mean = V[:self.outputs, :].T
 
-        self.U = Param(np.zeros((self.M, self.outputs)), dtype=np.float64, requires_grad=False, name='Inducing values U')
+        self.U = Param(np.zeros((self.M, self.outputs)), requires_grad=False, name='Inducing values U')
         # self.U = Param(np.random.randn(self.M, self.outputs), dtype=np.float64, requires_grad=False, name='Inducing values U')
         self.Lm = None
 
@@ -78,7 +78,7 @@ class BSGP_Layer(torch.nn.Module):
             raise Exception("Invalid prior type")
         
     def prior_hyper(self):
-        return -torch.sum(torch.square(self.kernel.loglengthscales)) / 2.0 - torch.sum(torch.square(self.kernel.logvariance - torch.log(0.05))) / 2.0
+        return -torch.sum(torch.square(self.kernel.lengthscales)) / 2.0 - torch.sum(torch.square(self.kernel.variance - torch.log(0.05))) / 2.0
 
     def prior(self):
         return -torch.sum(torch.square(self.U)) / 2.0 + self.prior_hyper() + self.prior_Z()
@@ -115,7 +115,7 @@ class BSGP(torch.nn.Module):
 
         variables = []
         for l in self.layers:
-            variables += [l.U, l.Z, l.kernel.loglengthscales, l.kernel.logvariance]
+            variables += [l.U, l.Z, l.kernel.lengthscales, l.kernel.variance]
 
         self.f, self.fmeans, self.fvars = self.propagate(X_running)
         self.y_mean, self.y_var = self.likelihood.predict_mean_and_var(self.fmeans[-1], self.fvars[-1])
