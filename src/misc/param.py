@@ -15,6 +15,7 @@ class Param(torch.nn.Module):
     def __init__(self, value, transform=transforms.Identity(), requires_grad=True, name='var'):
         super(Param, self).__init__()
         self.transform = transform
+        self.shape = value.shape
         self.name = name
         value_ = self.transform.backward(value)
         self.optvar = torch.nn.Parameter(torch.tensor(data=value_,

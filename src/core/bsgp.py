@@ -36,7 +36,7 @@ class BSGP_Layer(torch.nn.Module):
         if len(X) > 1000000:
             perm = np.random.permutation(100000)
             X = X[perm]
-
+        
         self.Z = Param(kmeans2(X, self.M, minit='points')[0], requires_grad=False, transform=transforms.SoftPlus(), name='Inducing locations Z') 
         
         if self.inputs == self.outputs:
@@ -101,7 +101,7 @@ class BSGP(torch.nn.Module):
         N = X.shape[0]
 
         self.layers = []
-        X_running = X.copy()
+        X_running = X # it should be X.clone()
         for l in range(n_layers):
             outputs = self.kernels[l+1].D_in if l+1 < n_layers else self.output_dim
             self.layers.append(BSGP_Layer(self.kernels[l], 
@@ -117,7 +117,7 @@ class BSGP(torch.nn.Module):
         for l in self.layers:
             variables += [l.U, l.Z, l.kernel.lengthscales, l.kernel.variance]
 
-        self.f, self.fmeans, self.fvars = self.propagate(X_running)
+        self.f, self.fmeans, self.fvars = self.propagate(torch.tensor(X_running, dtype=torch.float32))
         self.y_mean, self.y_var = self.likelihood.predict_mean_and_var(self.fmeans[-1], self.fvars[-1])
 
         self.prior = sum([l.prior() for l in self.layers])
@@ -155,10 +155,10 @@ class BSGP(torch.nn.Module):
         grads = torch.autograd.grad(self.nll, self.vars, create_graph=True)
 
         for theta, grad in zip(self.vars, grads):
-            xi = nn.Parameter(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
-            g = nn.Parameter(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
-            g2 = nn.Parameter(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
-            p = nn.Parameter(torch.zeros_like(theta, dtype=torch.float64), requires_grad=False)
+            xi = Param(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
+            g = Param(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
+            g2 = Param(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
+            p = Param(torch.zeros_like(theta, dtype=torch.float64), requires_grad=False)
 
             r_t = 1. / (xi + 1.)
             g_t = (1. - r_t) * g + r_t * grad

@@ -96,6 +96,9 @@ class RBF(torch.nn.Module):
             sq_dist = torch.exp(-0.5 * self.square_dist(X, X2))  # (N,M)
             return self.variance * sq_dist  # (N,M)
 
+    def Kdiag(self, X, presliced=False):
+        return torch.full(X.size()[:-1], self.variance.item())
+    
     def sample_freq(self, S, seed=None):
         """
         Computes random samples from the spectral density for Squared exponential kernel
