@@ -46,83 +46,60 @@ def build_model(X, Y, args):
     return gp
 
 
-def compute_loss(model, ys, ts, **kwargs):
-    """
-    Compute loss for GPODE optimization
-    @param model: a gpode.SequenceModel object
-    @param ys: true observation sequence
-    @param ts: observation times
-    @param kwargs: additional parameters passed to the model.build_lowerbound_terms() method
-    @return: loss, nll, initial_state_kl, inducing_kl
-    """
-    observ_loglik, init_state_kl = model.build_lowerbound_terms(ys, ts, **kwargs)
-    inducing_kl = model.build_kl()
-    loss = -(observ_loglik - init_state_kl - inducing_kl)
-    return loss, -observ_loglik, init_state_kl, inducing_kl
+def sghmc_sampling(model):
+    X_batch, Y_batch = model.get_minibatch()
+    _ = model.forward(X_batch, Y_batch)
+    model.sghmc_step(burn_in=True)
+    for _ in range(10):
+        X_batch, Y_batch = model.get_minibatch()
+        _ = model.forward(X_batch, Y_batch)
+        model.sghmc_step(burn_in=True)
+        _ = model.forward(X_batch, Y_batch)
+        model.sghmc_step(burn_in=False)
+
+    values = [var.detach().numpy() for var in model.variables]
+    sample = {}
+    for var, value in zip(model.variables, values):
+        sample[var] = value
+    model.window.append(sample)
+    if len(model.window) > model.window_size:
+        model.window = model.window[-model.window_size:]
+    return values
+
+def print_sample_performance(model, posterior=False):
+    X_batch, Y_batch = model.get_minibatch()
+    #if posterior:
+    #    feed_dict.update(np.random.choice(self.posterior_samples))
+    marginal_ll = -model.forward(X_batch, Y_batch)
+    return marginal_ll  
 
 
-def compute_predictions(model, ts, eval_sample_size=10):
-    """
-    Compute predictions or ODE sequences from a GPODE model from an optimized initial state
-    Useful while making predictions/extrapolation to novel time points from an optimized initial state.
+def collect_samples(model, num, spacing, progress=False):
+    model.posterior_samples = []
+    r = tqdm(range(num)) if progress else range(num)
+    for i in r:
+        for j in range(spacing):
+            X_batch, Y_batch = model.get_minibatch()
+            _ = model.forward(X_batch, Y_batch)
+            model.sghmc_step(burn_in=False)
 
-    @param model: a gpode.SequenceModel object
-    @param ts: prediction times (T,)
-    @param eval_sample_size: number of samples for evaluation : S
-    @return: predictive samples (S,N,T,D)
-    """
-    model.eval()
+        values = [var.data for var in model.variables]
+        sample = {}
+        for var, value in zip(model.variables, values):
+            sample[var] = value
+        model.posterior_samples.append(sample)
 
-    # add additional time point accounting the initial state
-    ts = insert_zero_t0(ts)
-
-    pred_samples = []
-    for _ in tqdm(range(eval_sample_size)):
-        with torch.no_grad():
-            pred_samples.append(model(model.x0_distribution.sample().squeeze(0), ts))
-    return torch.stack(pred_samples, 0)[:, :, 1:]  # (S,N,T,D)
-
-
-def compute_test_predictions(model, y0, ts, eval_sample_size=10):
-    """
-    Compute predictions or ODE sequences from a GPODE model from a given initial state
-
-    @param model: a gpode.SequenceModel object
-    @param y0: initial state for computing predictions (N,D)
-    @param ts: prediction times (T,)
-    @param eval_sample_size: number of samples for evaluation S
-    @return: predictive samples (S,N,T,D)
-    """
-    model.eval()
-    pred_samples = []
-    for _ in tqdm(range(eval_sample_size)):
-        with torch.no_grad():
-            pred_samples.append(model(y0, ts))
-    return torch.stack(pred_samples, 0)  # (S,N,T,D)
-
-
-def compute_summary(actual, predicted, noise_var, ys=1.0):
-    """
-    Computes MSE and MLL as summary metrics between actual and predicted sequences
-    @param actual: true observation sequence
-    @param predicted: predicted sequence
-    @param noise_var: noise var predicted by the model
-    @param ys: optional scaling factor for standardized data
-    @return: MLL(actual, predicted),  MSE(actual, predicted)
-    """
-    actual = actual * ys  # (S,N,T,D)
-    predicted = predicted * ys  # (S,N,T,D)
-    noise_var = noise_var * ys ** 2 + 1e-8  # (D,)
-
-    def lig_lik(actual, predicted, noise_var):
-        lik_samples = norm.logpdf(actual, loc=predicted, scale=noise_var ** 0.5)
-        lik = logsumexp(lik_samples, 0, b=1 / float(predicted.shape[0]))
-        return lik
-
-    def mse(actual, predicted):
-        return np.power(actual - predicted.mean(0), 2)
-
-    return lig_lik(actual, predicted, noise_var).mean(), mse(actual, predicted).mean()  # noqa
+def predict_y(model, X, S, posterior=True):
+     # assert S <= len(self.posterior_samples)
+    #model.eval()
+    ms, vs = [], []
+    for i in range(S):
+        #feed_dict = {self.X_placeholder: X}
+        #feed_dict.update(self.posterior_samples[i]) if posterior else feed_dict.update(self.window[-(i+1)])
+        _, _, _, m, v = model.predict_mean_and_var(torch.tensor(X, dtype=torch.float32))
+        ms.append(m.detach().numpy())
+        vs.append(v.detach().numpy())
+    return np.stack(ms, 0), np.stack(vs, 0)
 
 
 def compute_inducing_variables_for_plotting(model):

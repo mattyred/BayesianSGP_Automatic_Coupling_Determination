@@ -24,5 +24,11 @@ class Gaussian(nn.Module):
     def variance(self):
         return softplus(self.unconstrained_variance)
 
-    def log_prob(self, F, Y):
-        return -0.5 * (np.log(2.0 * np.pi) + torch.log(self.variance) + torch.pow(F - Y, 2) / self.variance)
+    def logdensity(self, x, mu, var):
+        return -0.5 * (torch.log(2 * torch.tensor(np.pi)) + torch.log(var) + (mu - x)**2 / var)
+
+    def predict_mean_and_var(self, Fmu, Fvar):
+        return torch.clone(Fmu), Fvar + self.variance
+    
+    def predict_density(self, Fmu, Fvar, Y):
+        return self.logdensity(Y, Fmu, Fvar + self.variance)

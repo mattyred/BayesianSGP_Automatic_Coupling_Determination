@@ -1,5 +1,7 @@
 import torch
 
+jitter = 1e-5
+
 def base_conditional(Kmn, Kmm, Knn, f, *, full_cov=False, q_sqrt=None, white=False, return_Lm=False):
     """
     Given a g1 and g2, and distribution p and q such that
@@ -20,10 +22,10 @@ def base_conditional(Kmn, Kmm, Knn, f, *, full_cov=False, q_sqrt=None, white=Fal
     :return: N x R  or R x N x N
     """
     num_func = f.shape[1]  # R
-    Lm = torch.cholesky(Kmm).to(torch.float32)
+    Lm = torch.linalg.cholesky(Kmm + torch.eye(Kmm.size(0)) * jitter).to(torch.float32)
 
     # Compute the projection matrix A
-    A = torch.triangular_solve(Kmn, Lm, upper=False)[0]
+    A = torch.linalg.solve_triangular(Lm, Kmn, upper=False)
 
     # compute the covariance due to the conditioning
     if full_cov:
@@ -35,10 +37,10 @@ def base_conditional(Kmn, Kmm, Knn, f, *, full_cov=False, q_sqrt=None, white=Fal
 
     # another backsubstitution in the unwhitened case
     if not white:
-        A = torch.triangular_solve(Lm.t(), A, upper=True)[0]
+        A = torch.linalg.solve_triangular(Lm.t(), A, upper=True)
 
     # construct the conditional mean
-    fmean = A.t().matmul(f())
+    fmean = A.t().matmul(f)
 
     if q_sqrt is not None:
         if q_sqrt.dim() == 2:
@@ -92,8 +94,8 @@ def conditional(Xnew, X, kern, f, *, full_cov=False, q_sqrt=None, white=False, r
         - variance: N x R (full_cov = False), R x N x N (full_cov = True)
     """
     num_data = X.shape[0]  # M
-    Kmm = kern.K(X()) + torch.eye(num_data, dtype=torch.float64) * 1e-7
-    Kmn = kern.K(X(), Xnew)
+    Kmm = kern.K(X) + torch.eye(num_data, dtype=torch.float64) * 1e-7
+    Kmn = kern.K(X, Xnew)
     if full_cov:
         Knn = kern.K(Xnew)
     else:

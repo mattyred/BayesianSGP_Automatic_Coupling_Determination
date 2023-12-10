@@ -1,9 +1,9 @@
 import torch
 from .kernels import RBF
-from src.misc.param import Param
 from src.misc import transforms
 from .conditionals import conditional
 from .priors import Strauss
+from src.misc.settings import settings
 from scipy.cluster.vq import kmeans2
 import numpy as np
 import torch.nn as nn
@@ -15,7 +15,7 @@ def get_rand(x, full_cov=False):
     mean = x[0]
     var = x[1]
     if full_cov:
-        chol = torch.cholesky(var + torch.eye(mean.size(0), dtype=torch.float64).unsqueeze(0) * 1e-7)
+        chol = torch.linalg.cholesky(var + torch.eye(mean.size(0), dtype=torch.float64).unsqueeze(0) * 1e-7)
         rnd = torch.transpose(torch.squeeze(torch.matmul(chol, torch.randn(mean.t().size(), dtype=torch.float64).unsqueeze(2))))
         return mean + rnd
     return mean + torch.randn(mean.size(), dtype=torch.float64) * torch.sqrt(var)
@@ -37,17 +37,17 @@ class BSGP_Layer(torch.nn.Module):
             perm = np.random.permutation(100000)
             X = X[perm]
         
-        self.Z = Param(kmeans2(X, self.M, minit='points')[0], requires_grad=False, transform=transforms.SoftPlus(), name='Inducing locations Z') 
+        self.Z = torch.nn.Parameter(torch.tensor(kmeans2(X, self.M, minit='points')[0]), requires_grad=True) 
         
         if self.inputs == self.outputs:
             self.mean = np.eye(self.inputs)
-        elif self.inputs < self.D_out:
+        elif self.inputs < self.outputs:
             self.mean = np.concatenate([np.eye(self.inputs), np.zeros((self.inputs, self.outputs - self.inputs))], axis=1)
         else:
             _, _, V = np.linalg.svd(X, full_matrices=False)
             self.mean = V[:self.outputs, :].T
 
-        self.U = Param(np.zeros((self.M, self.outputs)), requires_grad=False, name='Inducing values U')
+        self.U = torch.nn.Parameter(torch.zeros((self.M, self.outputs)), requires_grad=True)
         # self.U = Param(np.random.randn(self.M, self.outputs), dtype=np.float64, requires_grad=False, name='Inducing values U')
         self.Lm = None
 
@@ -78,7 +78,7 @@ class BSGP_Layer(torch.nn.Module):
             raise Exception("Invalid prior type")
         
     def prior_hyper(self):
-        return -torch.sum(torch.square(self.kernel.lengthscales)) / 2.0 - torch.sum(torch.square(self.kernel.variance - torch.log(0.05))) / 2.0
+        return -torch.sum(torch.square(self.kernel.lengthscales)) / 2.0 - torch.sum(torch.square(self.kernel.variance - torch.log(torch.tensor(0.05)))) / 2.0
 
     def prior(self):
         return -torch.sum(torch.square(self.U)) / 2.0 + self.prior_hyper() + self.prior_Z()
@@ -92,13 +92,16 @@ class BSGP(torch.nn.Module):
         self.kernels = kernels
         self.likelihood = lik
         self.minibatch_size = minibatch_size
+        self.window = []
         self.window_size = window_size
+        self.posterior_samples = []
+        self.epsilon, self.mdecay = epsilon, mdecay
 
         self.rand = lambda x: get_rand(x, full_cov)
         self.output_dim = output_dim or Y.shape[1]
 
         n_layers = len(kernels)
-        N = X.shape[0]
+        self.N = X.shape[0]
 
         self.layers = []
         X_running = X # it should be X.clone()
@@ -113,21 +116,40 @@ class BSGP(torch.nn.Module):
                                           prior_type=prior_inducing_type))
             X_running = np.matmul(X_running, self.layers[-1].mean)
 
-        variables = []
-        for l in self.layers:
-            variables += [l.U, l.Z, l.kernel.lengthscales, l.kernel.variance]
+    def forward(self, X, Y):
+        # convert X,Y to tensors
+        X, Y = torch.tensor(X, dtype=torch.float32), torch.tensor(Y, dtype=torch.float32) 
 
-        self.f, self.fmeans, self.fvars = self.propagate(torch.tensor(X_running, dtype=torch.float32))
-        self.y_mean, self.y_var = self.likelihood.predict_mean_and_var(self.fmeans[-1], self.fvars[-1])
+        # nll variables 
+        self.variables = []
+        for l in self.layers:
+            self.variables += [l.U, l.Z, l.kernel.lengthscales, l.kernel.variance]
+        
+        self.f, self.fmeans, self.fvars, self.y_mean, self.y_var = self.predict_mean_and_var(X)
 
         self.prior = sum([l.prior() for l in self.layers])
-        self.log_likelihood = self.likelihood.predict_density(self.fmeans[-1], self.fvars[-1], self.Y)
+        self.log_likelihood = self.likelihood.predict_density(self.fmeans[-1], self.fvars[-1], Y)
 
-        self.nll = -torch.sum(self.log_likelihood) / float(self.X_placeholder.size(0)) - (self.prior / self.N)
+        nll = -torch.sum(self.log_likelihood) / X.size(0) - (self.prior / self.N)
 
-        self.generate_update_step(self.nll, epsilon, mdecay)
+        self.generate_update_step(nll, self.mdecay, self.epsilon)
 
-
+        return nll
+    
+    def predict_mean_and_var(self, X):
+        f, fmeans, fvars = self.propagate(X)
+        y_mean, y_var = self.likelihood.predict_mean_and_var(fmeans[-1], fvars[-1])
+        return f, fmeans, fvars, y_mean, y_var
+    
+    def sghmc_step(self, burn_in=True):
+        # update model parameter (like loss.step())
+        if burn_in:
+            for var, var_t in self.burn_in_op:
+                var.data = var_t
+        else:
+            for var, var_t in self.sample_op:
+                var.data = var_t
+    
     def propagate(self, X):
         Fs = [X, ]
         Fmeans, Fvars = [], []
@@ -147,18 +169,38 @@ class BSGP(torch.nn.Module):
 
         return Fs[1:], Fmeans, Fvars
     
-    def generate_update_step(self, mdecay, epsilon):
+    def reset(self, X, Y):
+        self.X, self.Y, self.N = X, Y, X.shape[0]
+        self.data_iter = 0
+
+    def get_minibatch(self):
+        assert self.N >= self.minibatch_size
+        if self.N == self.minibatch_size:
+            return self.X, self.Y
+
+        if self.N < self.data_iter + self.minibatch_size:
+            shuffle = np.random.permutation(self.N)
+            self.X = self.X[shuffle, :]
+            self.Y = self.Y[shuffle, :]
+            self.data_iter = 0
+
+        X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
+        Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
+        self.data_iter += self.minibatch_size
+        return X_batch, Y_batch
+
+    def generate_update_step(self, nll, mdecay, epsilon):
         self.epsilon = epsilon
         burn_in_updates = []
         sample_updates = []
 
-        grads = torch.autograd.grad(self.nll, self.vars, create_graph=True)
+        grads = torch.autograd.grad(nll, self.variables, retain_graph=True, allow_unused=True)
 
-        for theta, grad in zip(self.vars, grads):
-            xi = Param(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
-            g = Param(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
-            g2 = Param(torch.ones_like(theta, dtype=torch.float64), requires_grad=False)
-            p = Param(torch.zeros_like(theta, dtype=torch.float64), requires_grad=False)
+        for theta, grad in zip(self.variables, grads):
+            xi = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            g = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            g2 = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            p = torch.nn.Parameter(torch.zeros_like(theta), requires_grad=False)
 
             r_t = 1. / (xi + 1.)
             g_t = (1. - r_t) * g + r_t * grad
@@ -168,9 +210,9 @@ class BSGP(torch.nn.Module):
 
             burn_in_updates.extend([(xi, xi_t), (g, g_t), (g2, g2_t)])
 
-            epsilon_scaled = epsilon / torch.sqrt(torch.tensor(self.N, dtype=torch.float64))
+            epsilon_scaled = epsilon / torch.sqrt(torch.tensor(self.N))
             noise_scale = 2. * epsilon_scaled ** 2 * mdecay * Minv
-            sigma = torch.sqrt(torch.maximum(noise_scale, torch.tensor(1e-16, dtype=torch.float64)))
+            sigma = torch.sqrt(torch.maximum(noise_scale, torch.tensor(1e-16)))
             sample_t = torch.distributions.normal.Normal(torch.zeros_like(theta), sigma).sample()
             p_t = p - epsilon ** 2 * Minv * grad - mdecay * p + sample_t
             theta_t = theta + p_t
