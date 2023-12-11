@@ -22,7 +22,6 @@ def get_rand(x, full_cov=False):
 
     
 class BSGP_Layer(torch.nn.Module): 
-
     def __init__(self, kern, outputs, num_inducing, fixed_mean, X, full_cov, prior_type="uniform"):
         super(BSGP_Layer, self).__init__()
         self.inputs, self.outputs, self.kernel = kern.D_in, outputs, kern
@@ -116,26 +115,31 @@ class BSGP(torch.nn.Module):
                                           prior_type=prior_inducing_type))
             X_running = np.matmul(X_running, self.layers[-1].mean)
 
-        self.variables = []
+        self.bsgp_parameters = nn.ParameterList()
         for l in self.layers:
-            self.variables += [l.U, l.Z, l.kernel.lengthscales, l.kernel.variance]
-
-    def forward(self, X):
-        # convert X,Y to tensors
+            self.bsgp_parameters.extend([l.U, l.Z, l.kernel.lengthscales, l.kernel.variance])
+    
+    def parameters(self, recurse=True):
+        return iter(self.bsgp_parameters)
+    
+    def forward(self, X, Y):
         X = torch.tensor(X, dtype=torch.float32)
+        Y = torch.tensor(Y, dtype=torch.float32)
         self.X_batch_size = X.size(0)
 
         self.f, self.fmeans, self.fvars = self.propagate(X)
         self.y_mean, self.y_var = self.likelihood.predict_mean_and_var(self.fmeans[-1], self.fvars[-1])
-
+        self.prior = sum([l.prior() for l in self.layers])
+        self.log_likelihood = self.likelihood.predict_density(self.fmeans[-1], self.fvars[-1], Y)
+        nll = -torch.sum(self.log_likelihood) / self.X_batch_size - (self.prior / self.N)
+        return nll
+    
     def update_model_parameters(self, burn_in=True):
         with torch.no_grad():
             if burn_in:
-                for var, var_t in self.burn_in_op:
-                    var.data = var_t
+                self.burn_in_op = [(var.data.copy_(var_t.data)) for var, var_t in self.burn_in_op]
             else:
-                for var, var_t in self.sample_op:
-                    var.data = var_t
+                self.sample_op = [(var.data.copy_(var_t.data)) for var, var_t in self.sample_op]
 
     def load_posterior_sample(self, sample):
         # load model.variables with posterior sample values
@@ -200,7 +204,7 @@ class BSGP(torch.nn.Module):
         burn_in_updates = []
         sample_updates = []
 
-        grads = torch.autograd.grad(nll, self.variables, retain_graph=True, allow_unused=True)
+        grads = torch.autograd.grad(nll, self.variables, retain_graph=True)
 
         for theta, grad in zip(self.variables, grads):
             xi = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)

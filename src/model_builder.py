@@ -45,10 +45,10 @@ def build_model(X, Y, args):
 
     return gp
 
-
-def sghmc_sampling(model):
+def sghmc_sampling(model, loss):
     X_batch, Y_batch = model.get_minibatch()
-    model.forward(X_batch)
+    nll = model.forward(X_batch, Y_batch)
+    nll.backward()
     model.sghmc_step(Y_batch, burn_in=True)
     for _ in range(10):
         X_batch, Y_batch = model.get_minibatch()
