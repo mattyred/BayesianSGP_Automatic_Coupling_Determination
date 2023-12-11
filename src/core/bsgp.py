@@ -116,40 +116,46 @@ class BSGP(torch.nn.Module):
                                           prior_type=prior_inducing_type))
             X_running = np.matmul(X_running, self.layers[-1].mean)
 
-    def forward(self, X, Y):
-        # convert X,Y to tensors
-        X, Y = torch.tensor(X, dtype=torch.float32), torch.tensor(Y, dtype=torch.float32) 
-
-        # nll variables 
         self.variables = []
         for l in self.layers:
             self.variables += [l.U, l.Z, l.kernel.lengthscales, l.kernel.variance]
-        
-        self.f, self.fmeans, self.fvars, self.y_mean, self.y_var = self.predict_mean_and_var(X)
 
+    def forward(self, X):
+        # convert X,Y to tensors
+        X = torch.tensor(X, dtype=torch.float32)
+        self.X_batch_size = X.size(0)
+
+        self.f, self.fmeans, self.fvars = self.propagate(X)
+        self.y_mean, self.y_var = self.likelihood.predict_mean_and_var(self.fmeans[-1], self.fvars[-1])
+
+    def update_model_parameters(self, burn_in=True):
+        with torch.no_grad():
+            if burn_in:
+                for var, var_t in self.burn_in_op:
+                    var.data = var_t
+            else:
+                for var, var_t in self.sample_op:
+                    var.data = var_t
+
+    def load_posterior_sample(self, sample):
+        # load model.variables with posterior sample values
+        with torch.no_grad():
+            for param, value in zip(self.variables, sample.values()):
+                param.data.copy_(torch.tensor(value, dtype=torch.float64))
+
+    def compute_nll(self, Y):
+        Y = torch.tensor(Y, dtype=torch.float32)
         self.prior = sum([l.prior() for l in self.layers])
         self.log_likelihood = self.likelihood.predict_density(self.fmeans[-1], self.fvars[-1], Y)
-
-        nll = -torch.sum(self.log_likelihood) / X.size(0) - (self.prior / self.N)
-
-        self.generate_update_step(nll, self.mdecay, self.epsilon)
-
+        nll = -torch.sum(self.log_likelihood) / self.X_batch_size - (self.prior / self.N)
         return nll
-    
-    def predict_mean_and_var(self, X):
-        f, fmeans, fvars = self.propagate(X)
-        y_mean, y_var = self.likelihood.predict_mean_and_var(fmeans[-1], fvars[-1])
-        return f, fmeans, fvars, y_mean, y_var
-    
-    def sghmc_step(self, burn_in=True):
-        # update model parameter (like loss.step())
-        if burn_in:
-            for var, var_t in self.burn_in_op:
-                var.data = var_t
-        else:
-            for var, var_t in self.sample_op:
-                var.data = var_t
-    
+        
+    def sghmc_step(self, Y, burn_in=True):
+        #self.zero_grad()
+        self.nll = self.compute_nll(Y)
+        self.generate_update_step(self.nll, self.mdecay, self.epsilon) # backward()
+        self.update_model_parameters(burn_in) # step()
+
     def propagate(self, X):
         Fs = [X, ]
         Fmeans, Fvars = [], []

@@ -32,8 +32,8 @@ class RBF(torch.nn.Module):
         self.dimwise = dimwise
         lengthscales_shape = (self.D_out, self.D_in) if dimwise else (self.D_in,)
         variance_shape = (self.D_out,) if dimwise else (1,)
-        self.loglengthscales = nn.Parameter(torch.ones(size=lengthscales_shape), requires_grad=True)
-        self.logvariance = nn.Parameter(torch.ones(size=variance_shape), requires_grad=True)
+        self.loglengthscales = nn.Parameter(torch.log(torch.ones(size=lengthscales_shape) * (self.D_in**0.5)), requires_grad=True)
+        self.logvariance = nn.Parameter(torch.log(torch.ones(size=variance_shape) * 0.1), requires_grad=True)
         self.lengthscales = torch.exp(self.loglengthscales)
         self.variance = torch.exp(self.logvariance)
         #self._initialize()

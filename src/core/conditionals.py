@@ -22,7 +22,7 @@ def base_conditional(Kmn, Kmm, Knn, f, *, full_cov=False, q_sqrt=None, white=Fal
     :return: N x R  or R x N x N
     """
     num_func = f.shape[1]  # R
-    Lm = torch.linalg.cholesky(Kmm + torch.eye(Kmm.size(0)) * jitter).to(torch.float32)
+    Lm = torch.linalg.cholesky(Kmm).to(torch.float32)
 
     # Compute the projection matrix A
     A = torch.linalg.solve_triangular(Lm, Kmn, upper=False)
@@ -94,7 +94,7 @@ def conditional(Xnew, X, kern, f, *, full_cov=False, q_sqrt=None, white=False, r
         - variance: N x R (full_cov = False), R x N x N (full_cov = True)
     """
     num_data = X.shape[0]  # M
-    Kmm = kern.K(X) + torch.eye(num_data, dtype=torch.float64) * 1e-7
+    Kmm = kern.K(X) + torch.eye(num_data, dtype=torch.float32) * jitter
     Kmn = kern.K(X, Xnew)
     if full_cov:
         Knn = kern.K(Xnew)
