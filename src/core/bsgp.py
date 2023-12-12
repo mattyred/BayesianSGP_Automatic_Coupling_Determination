@@ -169,7 +169,7 @@ class BSGP(torch.nn.Module):
             X_batch, Y_batch = self.get_minibatch()
             nll = self.fit(X_batch, Y_batch)
             nll.backward(retain_graph=True)
-            sampler.step(self.sampler_parameters, burn_in=True)   
+            sampler.step(self.sampler_parameters, burn_in=True)
             sampler.step(self.sampler_parameters, burn_in=False)  
 
         with torch.no_grad():
@@ -211,13 +211,14 @@ class BSGP(torch.nn.Module):
     def predict_y(self, X, S, posterior=True):
         X = torch.tensor(X, dtype=torch.float32)
         # assert S <= len(self.posterior_samples)
-        #self.eval()
+        self.eval()
         ms, vs = [], []
-        for i in range(S):
-            self.load_posterior_sample(self.posterior_samples[i]) if posterior else self.load_posterior_sample(self.window[-(i+1)])
-            m, v = self.forward(X)
-            ms.append(m.detach().cpu().numpy())
-            vs.append(v.detach().cpu().numpy())
+        with torch.no_grad():
+            for i in range(S):
+                self.load_posterior_sample(self.posterior_samples[i]) if posterior else self.load_posterior_sample(self.window[-(i+1)])
+                m, v = self.forward(X)
+                ms.append(m.detach().cpu().numpy())
+                vs.append(v.detach().cpu().numpy())
         return np.stack(ms, 0), np.stack(vs, 0)
 
     def load_posterior_sample(self, sample):
