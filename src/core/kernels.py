@@ -34,14 +34,14 @@ class RBF(torch.nn.Module):
         variance_shape = (self.D_out,) if dimwise else (1,)
         self.loglengthscales = nn.Parameter(torch.log(torch.ones(size=lengthscales_shape) * (self.D_in**0.5)), requires_grad=True)
         self.logvariance = nn.Parameter(torch.log(torch.ones(size=variance_shape) * 0.1), requires_grad=True)
-        self.lengthscales = torch.exp(self.loglengthscales)
-        self.variance = torch.exp(self.logvariance)
+        #self.lengthscales = torch.exp(self.loglengthscales)
+        #self.variance = torch.tensor(torch.exp(self.logvariance), requires_grad=True)
         #self._initialize()
 
     def _initialize(self):
         init.constant_(self.unconstrained_lengthscales, invsoftplus(torch.tensor(self.D_out**0.5)).item())
         init.constant_(self.unconstrained_variance, invsoftplus(torch.tensor(0.1)).item())
-    """
+    
     @property
     def lengthscales(self):
         return torch.exp(self.loglengthscales)
@@ -49,7 +49,7 @@ class RBF(torch.nn.Module):
     @property
     def variance(self):
         return torch.exp(self.logvariance)
-    """
+    
     def square_dist_dimwise(self, X, X2=None):
         """
         Computes squared euclidean distance (scaled) for dimwise kernel setting

@@ -6,10 +6,17 @@ from .priors import Strauss
 from src.misc.settings import settings
 from scipy.cluster.vq import kmeans2
 import numpy as np
+from tqdm import tqdm
 import torch.nn as nn
 
 
 jitter = 1e-5
+
+def set_seed(seed=0):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 def get_rand(x, full_cov=False):
     mean = x[0]
@@ -115,14 +122,31 @@ class BSGP(torch.nn.Module):
                                           prior_type=prior_inducing_type))
             X_running = np.matmul(X_running, self.layers[-1].mean)
 
+        # model parameters (trainable)
         self.bsgp_parameters = nn.ParameterList()
         for l in self.layers:
-            self.bsgp_parameters.extend([l.U, l.Z, l.kernel.lengthscales, l.kernel.variance])
+            self.bsgp_parameters.extend([l.U, l.Z, l.kernel.loglengthscales, l.kernel.logvariance])
+
+        # sampler parameters (non-trainable)
+        self.sampler_parameters = []
+        for theta in self.parameters():
+            self.xi = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            self.g = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            self.g2 = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            self.p = torch.nn.Parameter(torch.zeros_like(theta), requires_grad=False)
+            self.sampler_parameters.append({'xi': self.xi, 'g': self.g, 'g2': self.g2, 'p': self.p})
+
+        set_seed()
     
     def parameters(self, recurse=True):
         return iter(self.bsgp_parameters)
     
-    def forward(self, X, Y):
+    def forward(self, X):
+        self.f, self.fmeans, self.fvars = self.propagate(X)
+        self.y_mean, self.y_var = self.likelihood.predict_mean_and_var(self.fmeans[-1], self.fvars[-1])
+        return self.y_mean, self.y_var
+    
+    def fit(self, X, Y):
         X = torch.tensor(X, dtype=torch.float32)
         Y = torch.tensor(Y, dtype=torch.float32)
         self.X_batch_size = X.size(0)
@@ -134,31 +158,72 @@ class BSGP(torch.nn.Module):
         nll = -torch.sum(self.log_likelihood) / self.X_batch_size - (self.prior / self.N)
         return nll
     
-    def update_model_parameters(self, burn_in=True):
+    def train_step(self, sampler):
+        sampler.zero_grad()
+        X_batch, Y_batch = self.get_minibatch()
+        nll = self.fit(X_batch, Y_batch)
+        nll.backward(retain_graph=True)
+        sampler.step(self.sampler_parameters, burn_in=True)   
+        for _ in range(10):
+            sampler.zero_grad()
+            X_batch, Y_batch = self.get_minibatch()
+            nll = self.fit(X_batch, Y_batch)
+            nll.backward(retain_graph=True)
+            sampler.step(self.sampler_parameters, burn_in=True)   
+            sampler.step(self.sampler_parameters, burn_in=False)  
+
         with torch.no_grad():
-            if burn_in:
-                self.burn_in_op = [(var.data.copy_(var_t.data)) for var, var_t in self.burn_in_op]
-            else:
-                self.sample_op = [(var.data.copy_(var_t.data)) for var, var_t in self.sample_op]
+            values = [p.detach().cpu().numpy() for p in self.parameters()]
+            variables_names = ['U', 'Z', 'kernel_lengthscales', 'kernel_variance']
+            sample = {}
+            for var, value in zip(variables_names, values):
+                sample[var] = value
+            self.window.append(sample)
+            if len(self.window) > self.window_size:
+                self.window = self.window[-self.window_size:] 
+
+    def print_sample_performance(self, posterior=False):
+        X_batch, Y_batch = self.get_minibatch()
+        #if posterior:
+        #   feed_dict.update(np.random.choice(self.posterior_samples))
+        nll = self.fit(X_batch, Y_batch)
+        return -nll
+
+    def collect_samples(self, sampler, num=256, spacing=32, progress=False):
+        self.posterior_samples = []
+        r = tqdm(range(num)) if progress else range(num)
+        for i in r:
+            for j in range(spacing):
+                sampler.zero_grad()
+                X_batch, Y_batch = self.get_minibatch()
+                nll = self.fit(X_batch, Y_batch)
+                nll.backward(retain_graph=True)
+                sampler.step(self.sampler_parameters, burn_in=False)  
+
+            with torch.no_grad():
+                values = [p.detach().cpu().numpy() for p in self.parameters()]
+                variables_names = ['U', 'Z', 'kernel_lengthscales', 'kernel_variance']
+                sample = {}
+                for var, value in zip(variables_names, values):
+                    sample[var] = value
+                self.posterior_samples.append(sample)
+
+    def predict_y(self, X, S, posterior=True):
+        X = torch.tensor(X, dtype=torch.float32)
+        # assert S <= len(self.posterior_samples)
+        #self.eval()
+        ms, vs = [], []
+        for i in range(S):
+            self.load_posterior_sample(self.posterior_samples[i]) if posterior else self.load_posterior_sample(self.window[-(i+1)])
+            m, v = self.forward(X)
+            ms.append(m.detach().cpu().numpy())
+            vs.append(v.detach().cpu().numpy())
+        return np.stack(ms, 0), np.stack(vs, 0)
 
     def load_posterior_sample(self, sample):
         # load model.variables with posterior sample values
-        with torch.no_grad():
-            for param, value in zip(self.variables, sample.values()):
-                param.data.copy_(torch.tensor(value, dtype=torch.float64))
-
-    def compute_nll(self, Y):
-        Y = torch.tensor(Y, dtype=torch.float32)
-        self.prior = sum([l.prior() for l in self.layers])
-        self.log_likelihood = self.likelihood.predict_density(self.fmeans[-1], self.fvars[-1], Y)
-        nll = -torch.sum(self.log_likelihood) / self.X_batch_size - (self.prior / self.N)
-        return nll
-        
-    def sghmc_step(self, Y, burn_in=True):
-        #self.zero_grad()
-        self.nll = self.compute_nll(Y)
-        self.generate_update_step(self.nll, self.mdecay, self.epsilon) # backward()
-        self.update_model_parameters(burn_in) # step()
+        for param, value in zip(self.parameters(), sample.values()):
+            param.data = torch.tensor(value) # TODO: insert a torch.no_grad()
 
     def propagate(self, X):
         Fs = [X, ]
@@ -199,35 +264,3 @@ class BSGP(torch.nn.Module):
         self.data_iter += self.minibatch_size
         return X_batch, Y_batch
 
-    def generate_update_step(self, nll, mdecay, epsilon):
-        self.epsilon = epsilon
-        burn_in_updates = []
-        sample_updates = []
-
-        grads = torch.autograd.grad(nll, self.variables, retain_graph=True)
-
-        for theta, grad in zip(self.variables, grads):
-            xi = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
-            g = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
-            g2 = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
-            p = torch.nn.Parameter(torch.zeros_like(theta), requires_grad=False)
-
-            r_t = 1. / (xi + 1.)
-            g_t = (1. - r_t) * g + r_t * grad
-            g2_t = (1. - r_t) * g2 + r_t * grad ** 2
-            xi_t = 1. + xi * (1. - g * g / (g2 + 1e-16))
-            Minv = 1. / (torch.sqrt(g2 + 1e-16) + 1e-16)
-
-            burn_in_updates.extend([(xi, xi_t), (g, g_t), (g2, g2_t)])
-
-            epsilon_scaled = epsilon / torch.sqrt(torch.tensor(self.N))
-            noise_scale = 2. * epsilon_scaled ** 2 * mdecay * Minv
-            sigma = torch.sqrt(torch.maximum(noise_scale, torch.tensor(1e-16)))
-            sample_t = torch.distributions.normal.Normal(torch.zeros_like(theta), sigma).sample()
-            p_t = p - epsilon ** 2 * Minv * grad - mdecay * p + sample_t
-            theta_t = theta + p_t
-
-            sample_updates.extend([(theta, theta_t), (p, p_t)])
-
-        self.sample_op = sample_updates
-        self.burn_in_op = burn_in_updates + sample_updates

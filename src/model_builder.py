@@ -45,71 +45,12 @@ def build_model(X, Y, args):
 
     return gp
 
-def sghmc_sampling(model, loss):
-    X_batch, Y_batch = model.get_minibatch()
-    nll = model.forward(X_batch, Y_batch)
-    nll.backward()
-    model.sghmc_step(Y_batch, burn_in=True)
-    for _ in range(10):
-        X_batch, Y_batch = model.get_minibatch()
-        model.forward(X_batch)
-        model.sghmc_step(Y_batch, burn_in=True)
-        model.forward(X_batch)
-        model.sghmc_step(Y_batch, burn_in=False)
-
-    values = [var.detach().cpu().numpy() for var in model.variables]
-    variables_names = ['U', 'Z', 'kernel_lengthscales', 'kernel_variance']
-    sample = {}
-    for var, value in zip(variables_names, values):
-        sample[var] = value
-    model.window.append(sample)
-    if len(model.window) > model.window_size:
-        model.window = model.window[-model.window_size:]
-    return sample
-
-def print_sample_performance(model, posterior=False):
-    X_batch, Y_batch = model.get_minibatch()
-    #if posterior:
-    #    feed_dict.update(np.random.choice(self.posterior_samples))
-    model.forward(X_batch)
-    marginal_ll = -model.compute_nll(Y_batch)
-    return marginal_ll  
-
-
-def collect_samples(model, num, spacing, progress=False):
-    model.posterior_samples = []
-    r = tqdm(range(num)) if progress else range(num)
-    for i in r:
-        for j in range(spacing):
-            X_batch, Y_batch = model.get_minibatch()
-            model.forward(X_batch)
-            model.sghmc_step(Y_batch, burn_in=False)
-
-        values = [var.data for var in model.variables]
-        variables_names = ['U', 'Z', 'kernel_lengthscales', 'kernel_variance']
-        sample = {}
-        for var, value in zip(variables_names, values):
-            sample[var] = value
-        model.posterior_samples.append(sample)
-
-def predict_y(model, X, S, posterior=True):
-     # assert S <= len(self.posterior_samples)
-    model.eval()
-    ms, vs = [], []
-    for i in range(S):
-        #feed_dict.update(self.posterior_samples[i]) if posterior else feed_dict.update(self.window[-(i+1)])
-        model.load_posterior_sample(model.posterior_samples[i])
-        model.forward(X)
-        m, v = model.y_mean, model.y_var
-        ms.append(m.detach().cpu().numpy())
-        vs.append(v.detach().cpu().numpy())
-    return np.stack(ms, 0), np.stack(vs, 0)
 
 def predict(model, X, S):
     ms, vs = [], []
     n = max(len(X) / 10000, 1) 
     for xs in np.array_split(X, n):
-        m, v = predict_y(model, xs, S)
+        m, v = model.predict_y(xs, S)
         ms.append(m)
         vs.append(v)
 
