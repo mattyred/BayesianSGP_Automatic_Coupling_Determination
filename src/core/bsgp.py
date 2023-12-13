@@ -127,15 +127,6 @@ class BSGP(torch.nn.Module):
         for l in self.layers:
             self.bsgp_parameters.extend([l.U, l.Z, l.kernel.loglengthscales, l.kernel.logvariance])
 
-        # sampler parameters (non-trainable)
-        self.sampler_parameters = []
-        for theta in self.parameters():
-            self.xi = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
-            self.g = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
-            self.g2 = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
-            self.p = torch.nn.Parameter(torch.zeros_like(theta), requires_grad=False)
-            self.sampler_parameters.append({'xi': self.xi, 'g': self.g, 'g2': self.g2, 'p': self.p})
-
         set_seed()
     
     def parameters(self, recurse=True):
@@ -158,19 +149,18 @@ class BSGP(torch.nn.Module):
         nll = -torch.sum(self.log_likelihood) / self.X_batch_size - (self.prior / self.N)
         return nll
     
-    def train_step(self, sampler):
+    def train_step(self, sampler, burn_in=True):
         sampler.zero_grad()
         X_batch, Y_batch = self.get_minibatch()
         nll = self.fit(X_batch, Y_batch)
         nll.backward(retain_graph=True)
-        sampler.step(self.sampler_parameters, burn_in=True)   
+        sampler.step(burn_in=burn_in)
+
+    def sghmc_step(self, sampler):
+        self.train_step(sampler, burn_in=True)  
         for _ in range(10):
-            sampler.zero_grad()
-            X_batch, Y_batch = self.get_minibatch()
-            nll = self.fit(X_batch, Y_batch)
-            nll.backward(retain_graph=True)
-            sampler.step(self.sampler_parameters, burn_in=True)
-            sampler.step(self.sampler_parameters, burn_in=False)  
+            self.train_step(sampler, burn_in=True)
+            self.train_step(sampler, burn_in=False)  
 
         with torch.no_grad():
             values = [p.detach().cpu().numpy() for p in self.parameters()]
@@ -194,11 +184,7 @@ class BSGP(torch.nn.Module):
         r = tqdm(range(num)) if progress else range(num)
         for i in r:
             for j in range(spacing):
-                sampler.zero_grad()
-                X_batch, Y_batch = self.get_minibatch()
-                nll = self.fit(X_batch, Y_batch)
-                nll.backward(retain_graph=True)
-                sampler.step(self.sampler_parameters, burn_in=False)  
+                self.train_step(sampler, burn_in=False) 
 
             with torch.no_grad():
                 values = [p.detach().cpu().numpy() for p in self.parameters()]
@@ -211,20 +197,22 @@ class BSGP(torch.nn.Module):
     def predict_y(self, X, S, posterior=True):
         X = torch.tensor(X, dtype=torch.float32)
         # assert S <= len(self.posterior_samples)
-        self.eval()
+        #self.eval()
         ms, vs = [], []
         with torch.no_grad():
+            current_trainable_parameters = self.state_dict()
             for i in range(S):
                 self.load_posterior_sample(self.posterior_samples[i]) if posterior else self.load_posterior_sample(self.window[-(i+1)])
                 m, v = self.forward(X)
                 ms.append(m.detach().cpu().numpy())
                 vs.append(v.detach().cpu().numpy())
+            self.load_state_dict(current_trainable_parameters)
         return np.stack(ms, 0), np.stack(vs, 0)
 
     def load_posterior_sample(self, sample):
         # load model.variables with posterior sample values
         for param, value in zip(self.parameters(), sample.values()):
-            param.data = torch.tensor(value) # TODO: insert a torch.no_grad()
+            param.data = torch.tensor(value) 
 
     def propagate(self, X):
         Fs = [X, ]

@@ -12,6 +12,15 @@ class SGHMC_sampler(torch.optim.Optimizer):
             for p in group['params']: 
                 self.state[p] = dict(mom=torch.zeros_like(p.data)) 
 
+        self.sampler_parameters = []
+        for theta in list(self.trainable_parameters):
+            # sampler parameters (non-trainable)
+            xi = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            g = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            g2 = torch.nn.Parameter(torch.ones_like(theta), requires_grad=False)
+            p = torch.nn.Parameter(torch.zeros_like(theta), requires_grad=False)
+            self.sampler_parameters.append({'xi': xi, 'g': g, 'g2': g2, 'p': p})
+
     @property
     def trainable_parameters(self):
         return self.param_groups[0]['params']
@@ -20,27 +29,39 @@ class SGHMC_sampler(torch.optim.Optimizer):
     def trainable_parameters_gradients(self):
         return [p.grad for p in self.param_groups[0]['params']]
     
-    def step(self, sampler_parameters, burn_in=True):
-        for theta, grad, theta_sampler_params in zip(self.trainable_parameters, self.trainable_parameters_gradients, sampler_parameters):
-            r_t = 1. / (theta_sampler_params['xi'] + 1.)
-            g_t = (1. - r_t) * theta_sampler_params['g'] + r_t * grad
-            g2_t = (1. - r_t) * theta_sampler_params['g2'] + r_t * grad ** 2
-            xi_t = 1. + theta_sampler_params['xi'] * (1. - theta_sampler_params['g'] * theta_sampler_params['g'] / (theta_sampler_params['g2'] + 1e-16))
-            Minv = 1. / (torch.sqrt(theta_sampler_params['g2'] + 1e-16) + 1e-16)
+    @property
+    def non_trainable_parameters(self):
+        return self.sampler_parameters
+    
+    def step(self, burn_in=True):
+        burn_in_updates = []
+        sample_updates = []
 
-            if burn_in:
-                theta_sampler_params['xi'].data = xi_t
-                theta_sampler_params['g'].data = g_t
-                theta_sampler_params['g2'].data = g2_t
+        for theta, grad, sampler_param in zip(self.trainable_parameters, self.trainable_parameters_gradients, self.sampler_parameters):
+
+            r_t = 1. / (sampler_param['xi'] + 1.)
+            g_t = (1. - r_t) * sampler_param['g'] + r_t * grad
+            g2_t = (1. - r_t) * sampler_param['g2'] + r_t * grad ** 2
+            xi_t = 1. + sampler_param['xi'] * (1. - sampler_param['g'] * sampler_param['g'] / (sampler_param['g2'] + 1e-16))
+            Minv = 1. / (torch.sqrt(sampler_param['g2'] + 1e-16) + 1e-16)
+
+            burn_in_updates.append((sampler_param['xi'], (xi_t)))
+            burn_in_updates.append((sampler_param['g'], (g_t)))
+            burn_in_updates.append((sampler_param['g2'], (g2_t)))
 
             epsilon_scaled = self.epsilon / torch.sqrt(torch.tensor(self.N))
             noise_scale = 2. * epsilon_scaled ** 2 * self.mdecay * Minv
             sigma = torch.sqrt(torch.maximum(noise_scale, torch.tensor(1e-16)))
-            sample_t = torch.distributions.normal.Normal(torch.zeros_like(theta), sigma).sample()
+            sample_t = torch.randn_like(theta) * sigma #torch.distributions.normal.Normal(torch.zeros_like(theta), sigma).sample()
             
             # update trainable parameters and 'p' sampler parameter
-            p_t = theta_sampler_params['p'] - self.epsilon ** 2 * Minv * grad - self.mdecay * theta_sampler_params['p'] + sample_t
+            p_t = sampler_param['p'] - self.epsilon ** 2 * Minv * grad - self.mdecay * sampler_param['p'] + sample_t
             theta_t = theta + p_t
 
-            theta_sampler_params['p'].data = p_t
-            theta.data = theta_t # trainable parameters update
+            sample_updates.append((theta, theta_t))
+            sample_updates.append((sampler_param['p'], p_t))
+
+        if burn_in:
+            pass
+        else:
+            pass
