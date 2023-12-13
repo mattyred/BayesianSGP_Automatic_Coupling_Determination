@@ -154,13 +154,13 @@ class BSGP(torch.nn.Module):
         X_batch, Y_batch = self.get_minibatch()
         nll = self.fit(X_batch, Y_batch)
         nll.backward(retain_graph=True)
-        sampler.step(burn_in=burn_in)
+        sampler.step()
 
     def sghmc_step(self, sampler):
-        self.train_step(sampler, burn_in=True)  
+        self.train_step(sampler)  
         for _ in range(10):
-            self.train_step(sampler, burn_in=True)
-            self.train_step(sampler, burn_in=False)  
+            self.train_step(sampler)
+            #self.train_step(sampler, burn_in=False)  
 
         with torch.no_grad():
             values = [p.detach().cpu().numpy() for p in self.parameters()]
