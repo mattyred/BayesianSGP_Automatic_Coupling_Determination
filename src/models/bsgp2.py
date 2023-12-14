@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import os
 
 from scipy.cluster.vq import kmeans2
 
@@ -40,7 +41,7 @@ class Strauss(nn.Module):
 class BSGP(nn.Module):
  
     def __init__(self, X, Y, kernel, likelihood, prior_type, inputs, outputs,
-                 n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_lengthscale=2.,
+                 minibatch_size=100, n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_lengthscale=2.,
                  prior_variance=0.05, prior_lik_var=0.05):
         super(BSGP, self).__init__()
         self.kern = kernel
@@ -49,9 +50,12 @@ class BSGP(nn.Module):
         self.prior_type = prior_type
         self.inputs = inputs
         self.outputs = outputs
+        self.minibatch_size = minibatch_size
+        self.data_iter = 0
         self.prior_lengthscale = prior_lengthscale
         self.prior_variance = prior_variance
         self.prior_lik_var = prior_lik_var
+        self.X, self.Y = X, Y
         
         if n_data is None:
             self.N = X.shape[0]
@@ -145,7 +149,33 @@ class BSGP(nn.Module):
 
         return log_prob
 
+    def train_step(self, sampler):
+        X_batch, Y_batch = self.get_minibatch()
+        log_prob = self.log_prob(X_batch, Y_batch)
+        sampler.zero_grad()
+        loss = -log_prob
+        loss.backward()
+        sampler.step()
+        return loss
 
+    def get_minibatch(self):
+        assert self.N >= self.minibatch_size
+        if self.N == self.minibatch_size:
+            return self.X, self.Y
+
+        if self.N < self.data_iter + self.minibatch_size:
+            shuffle = np.random.permutation(self.N)
+            self.X = self.X[shuffle, :]
+            self.Y = self.Y[shuffle, :]
+            self.data_iter = 0
+
+        X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
+        Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
+        self.data_iter += self.minibatch_size
+        return X_batch, Y_batch
+    
+    def save_sample(self, sample_dir, idx):
+        torch.save(self.parameters(), os.path.join(sample_dir, "gp_{:03d}.pt".format(idx)))
 
 class BSGPTitsias(nn.Module):
  
