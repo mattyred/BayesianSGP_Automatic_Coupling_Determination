@@ -6,12 +6,12 @@ from src.model_builder import build_model, train
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from torchviz import make_dot
 import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, TensorDataset
+from src.misc.utils import inf_loop
 # setting PyTorch
 
 from src.misc.settings import settings
-device = settings.device
-if device.type == 'cuda':
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 
@@ -41,6 +41,7 @@ def main():
     args = ARGS()
 
     bsgp_model = build_model(data_uci.X_train, data_uci.Y_train, args)
+    bsgp_model = bsgp_model.to(device)
     bsgp_sampler = AdaptiveSGHMC(bsgp_model.parameters(),
                                 lr=args.epsilon, num_burn_in_steps=2000,
                                 mdecay=args.mdecay, scale_grad=N)
@@ -51,8 +52,25 @@ def main():
         samples_vs_iter = np.empty((data_uci.X_test.shape[0], args.iterations))
         samples_logps_iter = np.empty((data_uci.X_test.shape[0], args.iterations))
 
-    for _ in range(n_sampling_iters):
-        nll = train(bsgp_model, bsgp_sampler, args.K)
+    train_dataset = TensorDataset(torch.Tensor(data_uci.X_train, dtype=torch.float64).to(device), torch.Tensor(data_uci.Y_train, dtype=torch.float64).to(device))
+    train_dataloader = DataLoader(train_dataset, batch_size=args.minibatch_size, shuffle=True, drop_last=True) 
+    
+    iter = 0
+    for data in inf_loop(train_dataloader):
+        if iter > n_sampling_iters:
+            break
+
+        X_batch = data[0] # BCHW
+        Y_batch = data[1]
+
+        #nll = train(bsgp_model, bsgp_sampler, args.K)
+        for _ in range(args.K):
+            #X_batch, Y_batch = bsgp_model.get_minibatch()
+            log_prob = bsgp_model.log_prob(X_batch, Y_batch)
+            bsgp_sampler.zero_grad()
+            loss = -log_prob
+            loss.backward()
+            bsgp_sampler.step()
 
         if (_ > args.n_burnin_iters) and (_ % args.collect_every == 0):
             bsgp_model.save_sample('.results/', sample_idx)

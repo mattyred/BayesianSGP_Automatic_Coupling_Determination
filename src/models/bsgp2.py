@@ -116,9 +116,9 @@ class BSGP(nn.Module):
         return y_mean, y_var
 
     def log_prior_hyper(self):
-        log_lengthscales = torch.log(self.kern.lengthscales.get())
-        log_variance = torch.log(self.kern.variance.get())
-        log_lik_var = torch.log(self.likelihood.variance.get())
+        log_lengthscales = torch.log(self.kern.lengthscales) #torch.log(self.kern.lengthscales.get())
+        log_variance = torch.log(self.kern.variance) # torch.log(self.kern.variance.get())
+        log_lik_var = torch.log(self.likelihood.variance) # torch.log(self.likelihood.variance.get())
 
         log_prob = 0.
         log_prob += -torch.sum(torch.square(log_lengthscales - np.log(self.prior_lengthscale))) / 2.
@@ -172,8 +172,7 @@ class BSGP(nn.Module):
         X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
         Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
         self.data_iter += self.minibatch_size
-        return X_batch, Y_batch
-    
+        return torch.tensor(X_batch, dtype=torch.float64).detach(), torch.tensor(Y_batch, dtype=torch.float64).detach()
     def save_sample(self, sample_dir, idx):
         torch.save(self.parameters(), os.path.join(sample_dir, "gp_{:03d}.pt".format(idx)))
 
