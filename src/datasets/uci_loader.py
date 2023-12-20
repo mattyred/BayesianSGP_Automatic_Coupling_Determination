@@ -23,10 +23,10 @@ class UCIDataset():
             X_train_indices_boolean = np.random.choice([1, 0], size=X.shape[0], p=[0.8, 0.2])
             X_train_indices = np.where(X_train_indices_boolean == 1)[0]
             X_test_indices = np.where(X_train_indices_boolean == 0)[0]
-            self.X_train = X[X_train_indices]
-            self.Y_train = Y[X_train_indices]
-            self.X_test = X[X_test_indices]
-            self.Y_test = Y[X_test_indices]
+            self.X_train = torch.tensor(X[X_train_indices], dtype=torch.float64)
+            self.Y_train = torch.tensor(Y[X_train_indices], dtype=torch.float64)
+            self.X_test = torch.tensor(X[X_test_indices], dtype=torch.float64)
+            self.Y_test = torch.tensor(Y[X_test_indices], dtype=torch.float64)
             """
             Pd = None
             if pca != -1:

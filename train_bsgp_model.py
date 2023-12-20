@@ -52,7 +52,7 @@ def main():
         samples_vs_iter = np.empty((data_uci.X_test.shape[0], args.iterations))
         samples_logps_iter = np.empty((data_uci.X_test.shape[0], args.iterations))
 
-    train_dataset = TensorDataset(torch.Tensor(data_uci.X_train, dtype=torch.float64).to(device), torch.Tensor(data_uci.Y_train, dtype=torch.float64).to(device))
+    train_dataset = TensorDataset(torch.Tensor(data_uci.X_train).to(device), torch.Tensor(data_uci.Y_train).to(device))
     train_dataloader = DataLoader(train_dataset, batch_size=args.minibatch_size, shuffle=True, drop_last=True) 
     
     iter = 0
@@ -77,8 +77,7 @@ def main():
             sample_idx += 1
             #bsgp_model.set_samples(SAMPLES_DIR, cache=True)
 
-        if _ % 10 == 0:
-            print(f'Iter: {_} - Marginal LL: {-nll.detach()}')  
+        print(f'Iter: {iter} - Marginal LL: {log_prob.detach()}')  
 
 
 if __name__ =='__main__':

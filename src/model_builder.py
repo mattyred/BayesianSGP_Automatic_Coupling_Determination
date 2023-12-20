@@ -22,7 +22,7 @@ def build_model(X, Y, args):
     N, D_in, D_out = X.shape[0], X.shape[1], Y.shape[1]
 
     # define likelihood
-    lik = Gaussian(ndim = D_in)
+    lik = Gaussian(dtype=torch.float64)
 
     # define kernel
     kern = RBF(D_in=D_in, D_out=D_out, dimwise=False)
