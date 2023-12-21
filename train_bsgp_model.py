@@ -8,7 +8,8 @@ from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
 from src.misc.utils import inf_loop
-# setting PyTorch
+from scipy.stats import norm
+from scipy.special import logsumexp
 
 from src.misc.settings import settings
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -18,24 +19,26 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 def main():
     data_uci = UCIDataset(dataset_path='data/uci/boston.pth', static_split=True, seed=0)
     N, D = data_uci.X_train.shape
+    Ystd = data_uci.Y_train_std.numpy()
     print(f'X-train: {N, D}')
 
     class ARGS():
         num_inducing = 100
         n_layers = 1
-        minibatch_size = 100
+        minibatch_size = 1000
         window_size = 64
         output_dim= 1
         adam_lr = 0.01
-        prior_inducing_type = "uniform"
+        prior_inducing_type = "normal"
         full_cov = False
         epsilon = 0.01
         mdecay = 0.05
         iterations = 512
         num_posterior_samples = 100
         posterior_sample_spacing = 32
+        window_size  = 64
         mcmc_measures = True
-        n_burnin_iters = 500
+        n_burnin_iters = 5000
         collect_every = 10 # thinning
         K = 10
     args = ARGS()
@@ -52,35 +55,41 @@ def main():
         samples_vs_iter = np.empty((data_uci.X_test.shape[0], args.iterations))
         samples_logps_iter = np.empty((data_uci.X_test.shape[0], args.iterations))
 
+    batch_size = args.minibatch_size if N > args.minibatch_size else N
     train_dataset = TensorDataset(torch.Tensor(data_uci.X_train).to(device), torch.Tensor(data_uci.Y_train).to(device))
-    train_dataloader = DataLoader(train_dataset, batch_size=args.minibatch_size, shuffle=True, drop_last=True) 
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True) 
+
+    test_dataset = TensorDataset(torch.Tensor(data_uci.X_test).to(device), torch.Tensor(data_uci.Y_test).to(device))
+    test_dataloader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=False, drop_last=True) 
     
     iter = 0
+    sample_idx = 0
     print(f'Number of iterations: {n_sampling_iters}')
-    for data in inf_loop(train_dataloader):
-        if iter > n_sampling_iters:
-            break
+    for iter in range(n_sampling_iters):
 
-        X_batch = data[0].to(torch.float64) # BCHW
-        Y_batch = data[1].to(torch.float64)
+        #X_batch = data[0].to(torch.float64) # BCHW
+        #Y_batch = data[1].to(torch.float64)
 
-        #nll = train(bsgp_model, bsgp_sampler, args.K)
-        for k in range(args.K):
-            #X_batch, Y_batch = bsgp_model.get_minibatch()
-            log_prob = bsgp_model.log_prob(X_batch, Y_batch)
-            bsgp_sampler.zero_grad()
-            loss = -log_prob
-            loss.backward()
-            bsgp_sampler.step()
+        log_prob = bsgp_model.train_step(bsgp_sampler, K=args.K)
 
-        if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
-            bsgp_model.save_sample('.results/', sample_idx)
-            sample_idx += 1
-            #bsgp_model.set_samples(SAMPLES_DIR, cache=True)
+        bsgp_model.save_sample('.results/', sample_idx)
 
-        if iter % 50 == 0:
-            print(f'Iter: {iter} - Marginal LL: {log_prob.detach()}')  
+        #if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
+        #    bsgp_model.save_sample('.results/', sample_idx)
+        #    sample_idx += 1
+        #    bsgp_model.set_samples(SAMPLES_DIR, cache=True)
 
+        if iter % 500 == 0:
+            print('TRAIN    | iter = %6d       sample marginal LL = %5.2f' % (iter, -log_prob.detach()))
+
+            for X, Y in test_dataloader:
+                X = X.to(torch.float64)
+                Y = Y.to(torch.float64)
+                ms, vs = bsgp_model.predict_y(X, len(bsgp_model.window), posterior=False)
+                logps = norm.logpdf(np.repeat(Y.numpy()[None, :, :]*Ystd, len(bsgp_model.window), axis=0), ms*Ystd, np.sqrt(vs)*Ystd)
+                mnll = -np.mean(logsumexp(logps, axis=0) - np.log(len(bsgp_model.window)))
+                print('TEST    |  iter = %6d       MNLL = %5.2f' % (iter, mnll))
+        
         iter += 1
 
 

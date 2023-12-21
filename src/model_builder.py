@@ -35,6 +35,7 @@ def build_model(X, Y, args):
                 inputs=D_in,
                 outputs=D_out,
                 minibatch_size=mb_size,
+                window_size=args.window_size,
                 n_data=N,
                 n_inducing=args.num_inducing,
                 inducing_points_init=None,

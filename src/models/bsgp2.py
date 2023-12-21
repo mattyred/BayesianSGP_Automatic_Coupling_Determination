@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from tqdm import tqdm
 import os
 
 from scipy.cluster.vq import kmeans2
@@ -41,7 +42,7 @@ class Strauss(nn.Module):
 class BSGP(nn.Module):
  
     def __init__(self, X, Y, kernel, likelihood, prior_type, inputs, outputs,
-                 minibatch_size=100, n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_lengthscale=2.,
+                 minibatch_size=100, window_size=64, n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_lengthscale=2.,
                  prior_variance=0.05, prior_lik_var=0.05):
         super(BSGP, self).__init__()
         self.kern = kernel
@@ -56,6 +57,9 @@ class BSGP(nn.Module):
         self.prior_variance = prior_variance
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
+        # samples window
+        self.window = []
+        self.window_size = window_size
         
         if n_data is None:
             self.N = X.shape[0]
@@ -149,19 +153,34 @@ class BSGP(nn.Module):
 
         return log_prob
 
-    def train_step(self, sampler):
-        X_batch, Y_batch = self.get_minibatch()
-        log_prob = self.log_prob(X_batch, Y_batch)
-        sampler.zero_grad()
-        loss = -log_prob
-        loss.backward()
-        sampler.step()
-        return loss
+    def train_step(self, sampler, K=10):
+        for k in range(K):
+            X_batch, Y_batch = self.get_minibatch()
+            log_prob = self.log_prob(X_batch, Y_batch)
+            self.zero_grad()
+            loss = -log_prob
+            loss.backward()
+            sampler.step()
+        return log_prob
 
+    def predict_y(self, X, S, posterior=True):
+        # assert S <= len(self.posterior_samples)
+        ms, vs = [], []
+        for i in range(S):
+            # Load samples
+            if posterior:
+                self.load_sample(self.posterior_samples[i])
+            else:
+                self.load_sample(self.window[-(i+1)])
+            y_mean, y_var = self.predict(X)
+            ms.append(y_mean.detach())
+            vs.append(y_var.detach())
+        return np.stack(ms, 0), np.stack(vs, 0)
+    
     def get_minibatch(self):
         assert self.N >= self.minibatch_size
         if self.N == self.minibatch_size:
-            return self.X, self.Y
+            return torch.tensor(self.X, dtype=torch.float64), torch.tensor(self.Y, dtype=torch.float64)
 
         if self.N < self.data_iter + self.minibatch_size:
             shuffle = np.random.permutation(self.N)
@@ -172,120 +191,25 @@ class BSGP(nn.Module):
         X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
         Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
         self.data_iter += self.minibatch_size
-        return torch.tensor(X_batch, dtype=torch.float64).detach(), torch.tensor(Y_batch, dtype=torch.float64).detach()
-    def save_sample(self, sample_dir, idx):
-        torch.save(self.parameters(), os.path.join(sample_dir, "gp_{:03d}.pt".format(idx)))
-
-class BSGPTitsias(nn.Module):
- 
-    def __init__(self, X, Y, kernel, likelihood, prior_type, inputs, outputs,
-                 n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_lengthscale=2.,
-                 prior_variance=0.05, prior_lik_var=0.05):
-        super(BSGPTitsias, self).__init__()
-        self.kern = kernel
-        self.likelihood = likelihood
-        self.full_cov = full_cov
-        self.prior_type = prior_type
-        self.inputs = inputs
-        self.outputs = outputs
-        self.prior_lengthscale = prior_lengthscale
-        self.prior_variance = prior_variance
-        self.prior_lik_var = prior_lik_var
-        
-        if n_data is None:
-            self.N = X.shape[0]
-        else:
-            self.N = n_data
-        self.M = n_inducing
-        if inducing_points_init is not None:
-            self.M = inducing_points_init.shape[0]
-        else:
-            if torch.is_tensor(X):
-                X = X.cpu().numpy()
-
-            inducing_points_init = torch.tensor(
-                kmeans2(X, self.M, minit='points')[0], dtype=torch.float64)
-
-        if prior_type == "strauss":
-            self.pZ = Strauss(R=0.5)
-        
-        self.Z = nn.parameter.Parameter(
-            inducing_points_init.double(),
-            requires_grad=True)
-
-        self.U = nn.parameter.Parameter(
-            torch.zeros((self.M, self.outputs), dtype=torch.float64),
-            requires_grad=True)
-
-        self.Lm = None
-
-    def log_prior_Z(self):
-        if self.prior_type == "uniform":
-            return 0.
-        
-        if self.prior_type == "normal":
-            return -torch.sum(torch.square(self.Z)) / 2.0
-        
-        if self.prior_type == "strauss":
-            return self.pZ.log_prob(self.Z)
-
-        #if self.Lm is not None: # determinantal;
-        if self.prior_type == "determinantal":
-            self.Lm = torch.cholesky(self.kern.K(self.Z) + torch.eye(self.M, dtype=torch.float64, device=self.Z.device) * 1e-7)
-            log_prob = torch.sum(torch.log(torch.square(torch.diagonal(self.Lm))))
-            return log_prob
-        
-        else:
-            raise Exception("Invalid prior type")
-
-    def conditional(self, X):
-        mean, var, self.Lm = conditional(X, self.Z, self.kern, self.U,
-                                         whiten=True, full_cov=self.full_cov,
-                                         return_Lm=True)
-        return mean, var
+        return torch.tensor(X_batch, dtype=torch.float64), torch.tensor(Y_batch, dtype=torch.float64)
     
-    def conditional2(self, X):
-        mean, var, trace = conditional2(X, self.Z, self.kern, self.U,
-                                         whiten=True, full_cov=self.full_cov,
-                                         return_trace=True)
-        return mean, var, trace
+    def save_sample(self, sample_dir, idx):
+        sample = self.state_dict()
+        self.window.append(sample)
+        if len(self.window) > self.window_size:
+            self.window = self.window[-self.window_size:]
+        #torch.save(sample, os.path.join(sample_dir, "gp_{:03d}.pt".format(idx)))
+            
+    def load_sample(self, sample):
+        self.load_state_dict(sample)
+            
+    def collect_samples(self, sampler, num, spacing, progress=False):
+        self.posterior_samples = []
+        r = tqdm(range(num)) if progress else range(num)
+        for i in r:
+            for j in range(spacing):
+                X_batch, Y_batch = self.get_minibatch()
+                _ = self.train_step(X_batch, Y_batch, sampler, K=1)
 
-    def predict(self, X):
-        f_mean, f_var = self.conditional(X)
-        y_mean, y_var = self.likelihood.predict_mean_and_var(f_mean, f_var)
-        
-        return y_mean, y_var
-
-    def log_prior_hyper(self):
-        log_lengthscales = torch.log(self.kern.lengthscales.get())
-        log_variance = torch.log(self.kern.variance.get())
-        log_lik_var = torch.log(self.likelihood.variance.get())
-
-        log_prob = 0.
-        log_prob += -torch.sum(torch.square(log_lengthscales - np.log(self.prior_lengthscale))) / 2.
-        log_prob += -torch.sum(torch.square(log_variance - np.log(self.prior_variance))) / 2.
-        log_prob += -torch.sum(torch.square(log_lik_var - np.log(self.prior_lik_var))) / 2.
-
-        return log_prob
-
-    def log_prior_U(self):
-        return -torch.sum(torch.square(self.U)) / 2.0
-
-    def log_prior(self):
-        return self.log_prior_U() + self.log_prior_Z() + self.log_prior_hyper()
-
-    def log_likelihood(self, X, Y):
-        f_mean, f_var, trace = self.conditional2(X)
-        log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
-        trace = torch.sum(trace)
-
-        return log_likelihood, trace
-
-    def log_prob(self, X, Y):
-        log_likelihood, trace = self.log_likelihood(X, Y)
-
-        batch_size = X.shape[0]
-        
-        log_prob = (self.N / batch_size) * log_likelihood + trace
-
-        return log_prob
+            sample = self.state_dict()
+            self.posterior_samples.append(sample)
