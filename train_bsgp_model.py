@@ -4,7 +4,7 @@ from src.datasets.uci_loader import UCIDataset
 import seaborn as sns
 from src.model_builder import build_model, train
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
-from torchviz import make_dot
+#from torchviz import make_dot
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
 from src.misc.utils import inf_loop
@@ -56,15 +56,16 @@ def main():
     train_dataloader = DataLoader(train_dataset, batch_size=args.minibatch_size, shuffle=True, drop_last=True) 
     
     iter = 0
+    print(f'Number of iterations: {n_sampling_iters}')
     for data in inf_loop(train_dataloader):
         if iter > n_sampling_iters:
             break
 
-        X_batch = data[0] # BCHW
-        Y_batch = data[1]
+        X_batch = data[0].to(torch.float64) # BCHW
+        Y_batch = data[1].to(torch.float64)
 
         #nll = train(bsgp_model, bsgp_sampler, args.K)
-        for _ in range(args.K):
+        for k in range(args.K):
             #X_batch, Y_batch = bsgp_model.get_minibatch()
             log_prob = bsgp_model.log_prob(X_batch, Y_batch)
             bsgp_sampler.zero_grad()
@@ -72,12 +73,15 @@ def main():
             loss.backward()
             bsgp_sampler.step()
 
-        if (_ > args.n_burnin_iters) and (_ % args.collect_every == 0):
+        if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
             bsgp_model.save_sample('.results/', sample_idx)
             sample_idx += 1
             #bsgp_model.set_samples(SAMPLES_DIR, cache=True)
 
-        print(f'Iter: {iter} - Marginal LL: {log_prob.detach()}')  
+        if iter % 50 == 0:
+            print(f'Iter: {iter} - Marginal LL: {log_prob.detach()}')  
+
+        iter += 1
 
 
 if __name__ =='__main__':

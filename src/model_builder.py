@@ -25,7 +25,7 @@ def build_model(X, Y, args):
     lik = Gaussian(dtype=torch.float64)
 
     # define kernel
-    kern = RBF(D_in=D_in, D_out=D_out, dimwise=False)
+    kern = RBF(input_dim=D_in, ARD=True)
 
     mb_size = args.minibatch_size if N > args.minibatch_size else N
     bsgp = BSGP(X=X, Y=Y,
