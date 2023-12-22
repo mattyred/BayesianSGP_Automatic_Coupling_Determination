@@ -160,6 +160,8 @@ class BSGP(nn.Module):
             self.zero_grad()
             loss = -log_prob
             loss.backward()
+            for param in self.sampling_parameters:
+                param.data.clamp_(-10, 10)
             sampler.step()
         return log_prob
 

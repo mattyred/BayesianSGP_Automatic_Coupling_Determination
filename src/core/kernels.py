@@ -17,6 +17,7 @@ import torch
 import numpy as np
 from . import parameter
 
+jitter = 1e-6 
 
 class Kern(torch.nn.Module):
     """
@@ -113,7 +114,7 @@ class Stationary(Kern):
             self.ARD = False
 
     def square_dist(self, X, X2):
-        X = X / self.lengthscales.get()
+        X = X / (self.lengthscales.get() + jitter)
         Xs = (X**2).sum(1)
 
         if X2 is None:

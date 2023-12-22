@@ -30,7 +30,7 @@ def batch_diag(A):
 
 
 def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
-                jitter_level=1e-5, return_Lm=False):
+                jitter_level=1e-6, return_Lm=False):
     """
     Given F, representing the GP at the points X, produce the mean and
     (co-)variance of the GP at the points Xnew.
@@ -114,7 +114,7 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
 
 
 def conditional2(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
-                jitter_level=1e-5, return_Lm=False, return_trace=False):
+                jitter_level=1e-6, return_Lm=False, return_trace=False):
     """
     Given F, representing the GP at the points X, produce the mean and
     (co-)variance of the GP at the points Xnew.
