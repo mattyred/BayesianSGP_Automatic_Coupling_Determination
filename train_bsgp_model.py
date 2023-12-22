@@ -4,6 +4,7 @@ from src.datasets.uci_loader import UCIDataset
 import seaborn as sns
 from src.model_builder import build_model, train
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
+import torch.optim as optim
 #from torchviz import make_dot
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
@@ -12,7 +13,7 @@ from scipy.stats import norm
 from scipy.special import logsumexp
 
 from src.misc.settings import settings
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 
@@ -38,16 +39,17 @@ def main():
         posterior_sample_spacing = 32
         window_size  = 64
         mcmc_measures = True
-        n_burnin_iters = 5000
+        n_burnin_iters = 8000
         collect_every = 10 # thinning
         K = 10
     args = ARGS()
 
     bsgp_model = build_model(data_uci.X_train, data_uci.Y_train, args)
     bsgp_model = bsgp_model.to(device)
-    bsgp_sampler = AdaptiveSGHMC(bsgp_model.parameters(),
+    bsgp_sampler = AdaptiveSGHMC(bsgp_model.sampling_parameters,
                                 lr=args.epsilon, num_burn_in_steps=2000,
                                 mdecay=args.mdecay, scale_grad=N)
+    bsgp_optimizer = optim.Adam([bsgp_model.likelihood.variance], lr=1e-3)
     n_sampling_iters = args.n_burnin_iters + args.num_posterior_samples * args.collect_every
 
     if args.mcmc_measures:
@@ -70,25 +72,28 @@ def main():
         #X_batch = data[0].to(torch.float64) # BCHW
         #Y_batch = data[1].to(torch.float64)
 
-        log_prob = bsgp_model.train_step(bsgp_sampler, K=args.K)
+        log_prob = bsgp_model.train_step(device, bsgp_sampler, K=args.K)
 
         bsgp_model.save_sample('.results/', sample_idx)
+
+        log_prob = bsgp_model.optimizer_step(device, bsgp_optimizer)
 
         #if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
         #    bsgp_model.save_sample('.results/', sample_idx)
         #    sample_idx += 1
         #    bsgp_model.set_samples(SAMPLES_DIR, cache=True)
 
-        if iter % 500 == 0:
-            print('TRAIN    | iter = %6d       sample marginal LL = %5.2f' % (iter, -log_prob.detach()))
+        if iter % 100 == 0:
+            print('TRAIN\t| iter = %6d       sample marginal LL = %5.2f' % (iter, -log_prob.detach()))
 
             for X, Y in test_dataloader:
+                bsgp_model.eval()
                 X = X.to(torch.float64)
                 Y = Y.to(torch.float64)
                 ms, vs = bsgp_model.predict_y(X, len(bsgp_model.window), posterior=False)
                 logps = norm.logpdf(np.repeat(Y.numpy()[None, :, :]*Ystd, len(bsgp_model.window), axis=0), ms*Ystd, np.sqrt(vs)*Ystd)
                 mnll = -np.mean(logsumexp(logps, axis=0) - np.log(len(bsgp_model.window)))
-                print('TEST    |  iter = %6d       MNLL = %5.2f' % (iter, mnll))
+                print('TEST\t| iter = %6d       MNLL = %5.2f' % (iter, mnll))
         
         iter += 1
 

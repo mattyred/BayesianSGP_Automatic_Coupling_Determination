@@ -120,9 +120,9 @@ class BSGP(nn.Module):
         return y_mean, y_var
 
     def log_prior_hyper(self):
-        log_lengthscales = torch.log(self.kern.lengthscales) #torch.log(self.kern.lengthscales.get())
-        log_variance = torch.log(self.kern.variance) # torch.log(self.kern.variance.get())
-        log_lik_var = torch.log(self.likelihood.variance) # torch.log(self.likelihood.variance.get())
+        log_lengthscales = torch.log(self.kern.lengthscales.get())
+        log_variance = torch.log(self.kern.variance.get())
+        log_lik_var = torch.log(self.likelihood.variance.get())
 
         log_prob = 0.
         log_prob += -torch.sum(torch.square(log_lengthscales - np.log(self.prior_lengthscale))) / 2.
@@ -153,9 +153,9 @@ class BSGP(nn.Module):
 
         return log_prob
 
-    def train_step(self, sampler, K=10):
+    def train_step(self, device, sampler, K=10):
         for k in range(K):
-            X_batch, Y_batch = self.get_minibatch()
+            X_batch, Y_batch = self.get_minibatch(device)
             log_prob = self.log_prob(X_batch, Y_batch)
             self.zero_grad()
             loss = -log_prob
@@ -163,6 +163,15 @@ class BSGP(nn.Module):
             sampler.step()
         return log_prob
 
+    def optimizer_step(self, device, optimizer):
+        X_batch, Y_batch = self.get_minibatch(device)
+        log_prob = self.log_prob(X_batch, Y_batch)
+        optimizer.zero_grad()
+        loss = -log_prob
+        loss.backward()
+        optimizer.step()
+        return log_prob
+    
     def predict_y(self, X, S, posterior=True):
         # assert S <= len(self.posterior_samples)
         ms, vs = [], []
@@ -177,10 +186,10 @@ class BSGP(nn.Module):
             vs.append(y_var.detach())
         return np.stack(ms, 0), np.stack(vs, 0)
     
-    def get_minibatch(self):
+    def get_minibatch(self, device):
         assert self.N >= self.minibatch_size
         if self.N == self.minibatch_size:
-            return torch.tensor(self.X, dtype=torch.float64), torch.tensor(self.Y, dtype=torch.float64)
+            return torch.tensor(self.X, dtype=torch.float64, device=device), torch.tensor(self.Y, dtype=torch.float64, device=device)
 
         if self.N < self.data_iter + self.minibatch_size:
             shuffle = np.random.permutation(self.N)
@@ -191,7 +200,7 @@ class BSGP(nn.Module):
         X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
         Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
         self.data_iter += self.minibatch_size
-        return torch.tensor(X_batch, dtype=torch.float64), torch.tensor(Y_batch, dtype=torch.float64)
+        return torch.tensor(X_batch, dtype=torch.float64, device=device), torch.tensor(Y_batch, dtype=torch.float64, device=device)
     
     def save_sample(self, sample_dir, idx):
         sample = self.state_dict()
@@ -213,3 +222,7 @@ class BSGP(nn.Module):
 
             sample = self.state_dict()
             self.posterior_samples.append(sample)
+
+    @property
+    def sampling_parameters(self):
+        return list(self.parameters())[:-1]
