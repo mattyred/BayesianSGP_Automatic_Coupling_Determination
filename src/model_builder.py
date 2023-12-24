@@ -1,4 +1,5 @@
-from src.models.bsgp2 import BSGP
+from .models.bsgp import BSGP
+from .models.bgp import BGP
 from .core.kernels import RBF
 
 from tqdm import tqdm
@@ -10,7 +11,7 @@ from scipy.special import logsumexp
 from .core.likelihoods import Gaussian
 
 
-def build_model(X, Y, args):
+def build_bsgp_model(X, Y, args):
     """
     Builds a model object of gpode.SequenceModel based on the MoCap experimental setup
 
@@ -43,22 +44,31 @@ def build_model(X, Y, args):
 
     return bsgp
 
-def train(model, sampler, K):
-    for _ in range(K):
-        loss = model.train_step(sampler)
-    return loss
+def build_bgp_model(X, Y, args):
+    N, D_in, D_out = X.shape[0], X.shape[1], Y.shape[1]
 
-def predict(model, X, S):
-    ms, vs = [], []
-    n = max(len(X) / 10000, 1) 
-    for xs in np.array_split(X, n):
-        m, v = model.predict_y(xs, S)
-        ms.append(m)
-        vs.append(v)
+    # define likelihood
+    lik = Gaussian(dtype=torch.float64)
 
-    return np.concatenate(ms, 1), np.concatenate(vs, 1) 
+    # define kernel
+    kern = RBF(input_dim=D_in, ARD=True)
 
-def compute_mnll(ms, vs, Y_test, num_posterior_samples=100, ystd=0.1):
-    logps = norm.logpdf(np.repeat(Y_test[None, :, :]*ystd, num_posterior_samples, axis=0), ms*ystd, np.sqrt(vs)*ystd)
-    return logsumexp(logps, axis=0) - np.log(num_posterior_samples)
+    mb_size = args.minibatch_size if N > args.minibatch_size else N
+    bgp = BGP(X=X, Y=Y,
+                kernel=kern,
+                likelihood=lik,
+                inputs=D_in,
+                outputs=D_out,
+                minibatch_size=mb_size,
+                n_data=N,
+                full_cov=args.full_cov)
+
+    return bgp
+
+
+def compute_mnll(ms, vs, Y, num_posterior_samples=100, ystd=0.1):
+    with torch.no_grad():
+        logps = norm.logpdf(np.repeat(Y[None, :, :]*ystd, num_posterior_samples, axis=0), ms*ystd, np.sqrt(vs)*ystd)
+        mnll = -np.mean(logsumexp(logps, axis=0) - np.log(num_posterior_samples))
+        return mnll
 

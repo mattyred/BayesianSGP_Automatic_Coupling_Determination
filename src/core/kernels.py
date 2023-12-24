@@ -68,13 +68,6 @@ class Kern(torch.nn.Module):
 
         return X, X2
 
-    def __add__(self, other):
-        return Add([self, other])
-
-    def __mul__(self, other):
-        return Prod([self, other])
-
-
 
 class Stationary(Kern):
     """
@@ -136,6 +129,17 @@ class Stationary(Kern):
         return self.variance.get().expand(X.size(0))
 
 
+class RBF(Stationary):
+    """
+    The radial basis function (RBF) or squared exponential kernel
+    """
+
+    def K(self, X, X2=None, X_inducing=False, X2_inducing=False, presliced=False):
+        if not presliced:
+            X, X2 = self._slice(X, X2)
+        res = self.variance.get() * torch.exp(-0.5 * self.square_dist(X, X2))
+        return res
+    
 class RBF(Stationary):
     """
     The radial basis function (RBF) or squared exponential kernel
