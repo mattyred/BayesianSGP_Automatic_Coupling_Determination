@@ -26,3 +26,5 @@ class Strauss(object):
 
     def logp(self, X):
         return self._get_Sr(X) * torch.log(self.gamma)
+
+

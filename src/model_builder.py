@@ -26,17 +26,20 @@ def build_bsgp_model(X, Y, args):
     lik = Gaussian(dtype=torch.float64)
 
     # define kernel
-    kern = RBF(input_dim=D_in, ARD=True)
+    if args.kernel_type == 'ACD':
+        kern = RBF(input_dim=D_in, ACD=True)
+    else:
+        kern = RBF(input_dim=D_in, ARD=True)
 
     mb_size = args.minibatch_size if N > args.minibatch_size else N
     bsgp = BSGP(X=X, Y=Y,
                 kernel=kern,
                 likelihood=lik,
                 prior_type=args.prior_inducing_type,
+                prior_kernel=args.prior_kernel,
                 inputs=D_in,
                 outputs=D_out,
                 minibatch_size=mb_size,
-                window_size=args.window_size,
                 n_data=N,
                 n_inducing=args.num_inducing,
                 inducing_points_init=None,
@@ -51,7 +54,10 @@ def build_bgp_model(X, Y, args):
     lik = Gaussian(dtype=torch.float64)
 
     # define kernel
-    kern = RBF(input_dim=D_in, ARD=True)
+    if args.kernel_type == 'ACD':
+        kern = RBF(input_dim=D_in, ACD=True)
+    else:
+        kern = RBF(input_dim=D_in, ARD=True)
 
     mb_size = args.minibatch_size if N > args.minibatch_size else N
     bgp = BGP(X=X, Y=Y,
@@ -60,6 +66,7 @@ def build_bgp_model(X, Y, args):
                 inputs=D_in,
                 outputs=D_out,
                 minibatch_size=mb_size,
+                prior_kernel=args.prior_kernel,
                 n_data=N,
                 full_cov=args.full_cov)
 

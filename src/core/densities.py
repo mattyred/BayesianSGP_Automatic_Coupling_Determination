@@ -19,71 +19,25 @@ import torch
 
 
 def gaussian(x, mu, var):
-    return -0.5 * (float(np.log(2 * np.pi)) + torch.log(var) + (mu-x)**2/var)
-
+    return -0.5 * (torch.log(2 * torch.tensor(np.pi)) + torch.log(torch.tensor(var)) + (mu-x)**2/var)
 
 def lognormal(x, mu, var):
-    lnx = torch.log(x)
-    return gaussian(lnx, mu, var) - lnx
+    return -torch.sum(torch.square((x-mu)/var)) / 2.
 
+def loglaplace(x, b):
+    return -torch.sum(torch.abs(x) / b)
 
-def bernoulli(p, y):
-    return torch.log(y*p+(1-y)*(1-p))
+def logwishart(L, P):
+    n = L.size(0)
+    return -torch.sum(torch.log(torch.diag(torch.abs(L)))) - torch.trace(n*P) / 2.0
 
+def loginvwishart(L, P):
+    n = L.size(0)
+    return -(2*n + 1)  * torch.sum(torch.log(torch.diag(torch.abs(L)))) - torch.trace(torch.inverse(P)) / 2.0
 
-def gammaln(x):
-    # attention: Not differentiable!
-    if np.isscalar(x):
-        y = float(scipy.special.gammaln(x))
-    elif isinstance(x, torch.Tensor):
-        y = torch.as_tensor(scipy.special.gammaln(x.numpy()), dtype=x.dtype)
-    else:
-        raise ValueError("Unsupported input type "+str(type(x)))
-    return y
-
-
-def poisson(lamb, y):
-    return y * torch.log(lamb) - lamb - gammaln(y + 1.)
-
-
-def exponential(lamb, y):
-    return - y/lamb - torch.log(lamb)
-
-
-def gamma(shape, scale, x):
-    return (-shape * torch.log(scale) - gammaln(shape)
-            + (shape - 1.) * torch.log(x) - x / scale)
-
-
-def beta(alpha, beta, y):
-    # need to clip y, since log of 0 is nan...
-    y = torch.clamp(y, min=1e-6, max=1-1e-6)
-    return ((alpha - 1.) * torch.log(y) + (beta - 1.) * torch.log(1. - y)
-            + gammaln(alpha + beta)
-            - gammaln(alpha)
-            - gammaln(beta))
-
-
-def laplace(mu, sigma, y):
-    return - torch.abs(mu - y) / sigma - torch.log(2. * sigma)
-
-
-def multivariate_normal(x, mu, L):
-    """
-    L is the Cholesky decomposition of the covariance.
-    x and mu are either vectors (ndim=1) or matrices. In the matrix case, we
-    assume independence over the *columns*: the number of rows must match the
-    size of L.
-    """
-    d = x - mu
-    if d.dim() == 1:
-        d = d.unsqueeze(1)
-    alpha, _ = torch.solve(d, L)
-    alpha = alpha.squeeze(1)
-    num_col = 1 if x.dim() == 1 else x.size(1)
-    num_dims = x.size(0)
-    ret = - 0.5 * num_dims * num_col * float(np.log(2 * np.pi))
-    ret += - num_col * torch.diag(L).log().sum()
-    ret += - 0.5 * (alpha**2).sum()
-    # ret = - 0.5 * (alpha**2).mean()
-    return ret
+def loghorseshoe(P, scale):
+    K = 1 / torch.sqrt(2 * torch.tensor(np.pi)**3)
+    A = (scale / P) ** 2
+    lb = K / 2 * torch.log(1 + 4 * A)
+    ub = K * torch.log(1 + 2 * A)
+    return torch.sum(torch.log((lb + ub) / 2.))

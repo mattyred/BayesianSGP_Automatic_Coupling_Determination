@@ -2,22 +2,42 @@ import logging
 import numpy as np
 import torch
 from torch.utils.data import  TensorDataset
+from sklearn.model_selection import KFold
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
 class UCIDataset():
 
-    def __init__(self, dataset_path, static_split, seed):
+    def __init__(self, dataset_path, k=-1, seed=0):
         #dataset_path = ('./data/' + dataset + '.pth')
         logger.info('Loading dataset from %s' % dataset_path)
         dataset = TensorDataset(*torch.load(dataset_path))
         X, Y = dataset.tensors
         X, Y = X.numpy(), Y.numpy()
 
-        if static_split == False:
-            Y_mean, Y_std = Y.mean(0), Y.std(0) + 1e-9
-            return X, Y, Y_mean, Y_std
+        if k !=-1 :
+            assert k > 0
+            self.kfold = KFold(n_splits=k)
+            self.X_train_kfold = []
+            self.Y_train_kfold = []
+            self.X_test_kfold = []
+            self.Y_test_kfold = []
+            self.Y_train_mean_kfold = []
+            self.Y_train_std_kfold = []
+            for train_index, test_index in self.kfold.split(X):
+                X_train, X_test = X[train_index], X[test_index]
+                Y_train, Y_test = Y[train_index], Y[test_index]
+                self.X_train_kfold.append(torch.tensor(X_train, dtype=torch.float64))
+                self.X_test_kfold.append(torch.tensor(X_test, dtype=torch.float64))
+                # Standardize data
+                Y_train_mean, Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
+                Y_train = (Y_train - Y_train_mean) / Y_train_std
+                Y_test = (Y_test - Y_train_mean) / Y_train_std
+                self.Y_train_kfold.append(torch.tensor(Y_train, dtype=torch.float64))
+                self.Y_test_kfold.append(torch.tensor(Y_test, dtype=torch.float64))
+                self.Y_train_mean_kfold.append(Y_train_mean)
+                self.Y_train_std_kfold.append(Y_train_std)
         else:
             #X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.20, random_state=fold)
             X_train_indices_boolean = np.random.choice([1, 0], size=X.shape[0], p=[0.8, 0.2])

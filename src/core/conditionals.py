@@ -68,8 +68,8 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
     # compute kernel stuff
     num_data = X.size(0)  # M
     num_func = f.size(1)  # K
-    Kmn = kern.K(X, Xnew, X_inducing=True, X2_inducing=False)
-    Kmm = kern.K(X, X, X_inducing=True, X2_inducing=True) + torch.eye(num_data, dtype=X.dtype, device=X.device) * jitter_level
+    Kmn = kern.K(X, Xnew)
+    Kmm = kern.K(X, X) + torch.eye(num_data, dtype=X.dtype, device=X.device) * jitter_level
     Lm = torch.cholesky(Kmm, upper=False)
 
     # Compute the projection matrix A
@@ -77,10 +77,10 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
 
     # compute the covariance due to the conditioning
     if full_cov:
-        fvar = kern.K(Xnew, Xnew, X_inducing=False, X2_inducing=False) - torch.matmul(A.t(), A)
+        fvar = kern.K(Xnew, Xnew) - torch.matmul(A.t(), A)
         fvar = fvar.unsqueeze(0).expand(num_func, -1, -1) # K x N x N
     else:
-        fvar = kern.Kdiag(Xnew, X_inducing=False) - (A**2).sum(0)
+        fvar = kern.Kdiag(Xnew) - (A**2).sum(0)
         fvar = fvar.unsqueeze(0).expand(num_func, -1) # K x N
     # fvar is K x N x N or K x N
 

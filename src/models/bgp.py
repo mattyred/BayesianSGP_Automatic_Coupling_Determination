@@ -12,8 +12,7 @@ from ..misc.utils import get_all_files
 class BGP(nn.Module):
  
     def __init__(self, X, Y, kernel, likelihood, inputs, outputs,
-                 minibatch_size=100, n_data=None, full_cov=False, prior_lengthscale=2.,
-                 prior_variance=0.05, prior_lik_var=0.05):
+                 minibatch_size=100, prior_kernel=None, n_data=None, full_cov=False, prior_lik_var=0.05):
         super(BGP, self).__init__()
         self.kern = kernel
         self.likelihood = likelihood
@@ -22,8 +21,7 @@ class BGP(nn.Module):
         self.outputs = outputs
         self.minibatch_size = minibatch_size
         self.data_iter = 0
-        self.prior_lengthscale = prior_lengthscale
-        self.prior_variance = prior_variance
+        self.prior_kernel = prior_kernel
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
         

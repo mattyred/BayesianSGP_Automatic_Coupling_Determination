@@ -68,44 +68,40 @@ class Kern(torch.nn.Module):
 
         return X, X2
 
-
-class Stationary(Kern):
+class RBF(Kern):
     """
-    Base class for kernels that are stationary, that is, they only depend on
-        r = || x - x' ||
-    This class handles 'ARD' behaviour, which stands for 'Automatic Relevance
-    Determination'. This means that the kernel has one lengthscale per
-    dimension, otherwise the kernel is isotropic (has a single lengthscale).
+    The radial basis function (RBF) or squared exponential kernel
     """
-
-    def __init__(self, input_dim, variance=1.0, lengthscales=None,
-                 active_dims=None, ARD=False, name=None):
-        """
-        - input_dim is the dimension of the input to the kernel
-        - variance is the (initial) value for the variance parameter
-        - lengthscales is the initial value for the lengthscales parameter
-          defaults to 1.0 (ARD=False) or np.ones(input_dim) (ARD=True).
-        - active_dims is a list of length input_dim which controls which
-          columns of X are used.
-        - ARD specifies whether the kernel has one lengthscale per dimension
-          (ARD=True) or a single lengthscale (ARD=False).
-        """
-        super(Stationary, self).__init__(input_dim, active_dims, name=name)
+    def __init__(self, input_dim, variance=1.0, init_val=None,
+                 active_dims=None, ARD=False, ACD=False, name=None):
+        super(RBF, self).__init__(input_dim, active_dims, name=name)
         self.variance = parameter.PositiveParam(variance)
-        if ARD:
-            if lengthscales is None:
-                lengthscales = torch.ones(input_dim)
+        if ACD:
+            low_tri_shape  = (self.input_dim*(self.input_dim+1)//2,) 
+            if init_val is None:
+                l = torch.ones(low_tri_shape, dtype=torch.float64)
             else:
-                # accepts float or array:
-                lengthscales = lengthscales * torch.ones(input_dim)
-            self.lengthscales = parameter.PositiveParam(lengthscales)
-            self.ARD = True
+                l = init_val * torch.ones(low_tri_shape, dtype=torch.float64)
+            self.L = parameter.Param(val=l)
+            self.ACD = True
+            self.rbf_type = 'ACD'
         else:
-            if lengthscales is None:
-                lengthscales = 1.0
-            self.lengthscales = parameter.PositiveParam(lengthscales)
-            self.ARD = False
-
+            if ARD:
+                if init_val is None:
+                    lengthscales = torch.ones(input_dim)
+                else:
+                    # accepts float or array:
+                    lengthscales = init_val * torch.ones(input_dim)
+                self.lengthscales = parameter.PositiveParam(lengthscales)
+                self.ARD = True
+                self.rbf_type = 'ARD'
+            else:
+                if init_val is None:
+                    lengthscales = 1.0
+                self.lengthscales = parameter.PositiveParam(lengthscales)
+                self.ARD = False
+                self.rbf_type = 'standard'
+    
     def square_dist(self, X, X2):
         X = X / (self.lengthscales.get() + jitter)
         Xs = (X**2).sum(1)
@@ -121,32 +117,59 @@ class Stationary(Kern):
         dist += Xs.view(-1, 1) + X2s.view(1, -1)
         return dist
 
-    def euclid_dist(self, X, X2):
-        r2 = self.square_dist(X, X2)
-        return (r2 + 1e-12)**0.5
+    def malhanobis_dist(self, X, X2):
+        if X2 is None:
+            X2 = X
+        N = X.size(0)
+        M = X2.size(0)
+        precision = self.precision
+        # compute z, z2
+        z = self._z(X, precision, dim=1) # (N, 1)
+        z2 = self._z(X2, precision, dim=1) # (M, 1)
+        # compute X(X2Λ)ᵀ
+        X2Lambda = torch.matmul(X2, precision) # (M, input_dium)
+        XX2LambdaT = torch.matmul(X, X2Lambda.t()) # (N, M)
+        # compute z1ᵀ 
+        ones_M = torch.ones(M, 1, dtype=torch.float64) # (M, 1)
+        zcol = torch.matmul(z, ones_M.t()) # (N, M)
+        # compute 1z2ᵀ 
+        ones_N = torch.ones(N, 1, dtype=torch.float64) # (N, 1)
+        zrow = torch.matmul(ones_N, z2.t()) # (N, M)
 
-    def Kdiag(self, X, X_inducing=False, presliced=False):
+        dist = zcol - 2*XX2LambdaT + zrow # (N, M)
+        return dist
+    
+    def _z(self, X, Lambda, dim=2):
+        XLambda = torch.matmul(X, Lambda) # (N/M, input_dim)
+        XLambdaX = torch.mul(XLambda, X) # (M, input_dim)
+        return torch.sum(XLambdaX, dim=dim, keepdim=True) # (N/M, 1)
+    
+    def _fill_triangular(self):
+        lower_indices = torch.tril_indices(self.input_dim, self.input_dim) # (2, lsize)
+        l_matrix = torch.zeros(self.input_dim, self.input_dim, dtype=self.L.dtype) # (input_dim, input_dim)
+        l_matrix[lower_indices.tolist()] = self.L.get()
+        return l_matrix
+    
+    def Kdiag(self, X, presliced=False):
         return self.variance.get().expand(X.size(0))
-
-
-class RBF(Stationary):
-    """
-    The radial basis function (RBF) or squared exponential kernel
-    """
-
-    def K(self, X, X2=None, X_inducing=False, X2_inducing=False, presliced=False):
+    
+    def K(self, X, X2=None, presliced=False):
         if not presliced:
             X, X2 = self._slice(X, X2)
-        res = self.variance.get() * torch.exp(-0.5 * self.square_dist(X, X2))
+
+        if self.rbf_type != 'ACD': # ARD or standard
+            res = self.variance.get() * torch.exp(-0.5 * self.square_dist(X, X2))
+        else: # ACD
+            res = self.variance.get() * torch.exp(-0.5 * self.malhanobis_dist(X, X2))
         return res
     
-class RBF(Stationary):
-    """
-    The radial basis function (RBF) or squared exponential kernel
-    """
-
-    def K(self, X, X2=None, X_inducing=False, X2_inducing=False, presliced=False):
-        if not presliced:
-            X, X2 = self._slice(X, X2)
-        res = self.variance.get() * torch.exp(-0.5 * self.square_dist(X, X2))
-        return res
+    @property
+    def precision(self):
+        l_matrix = self._fill_triangular()
+        precision_matrix = torch.matmul(l_matrix, l_matrix.t())
+        return precision_matrix
+    
+    @property
+    def l_matrix(self):
+        l_matrix = self._fill_triangular()
+        return l_matrix

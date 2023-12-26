@@ -8,6 +8,7 @@ from scipy.cluster.vq import kmeans2
 
 from ..core.conditionals import conditional, conditional2
 from ..misc.utils import get_all_files
+from ..core.densities import *
 
 class Strauss(nn.Module):
     
@@ -37,13 +38,18 @@ class Strauss(nn.Module):
     def log_prob(self, X):
         return self._get_Sr(X) * np.log(self.gamma)
 
+def logdet_jacobian(kernel, eps=1e-6):
+    l_matrix = kernel.l_matrix
+    n = l_matrix.size(0)
+    diag_l = torch.diagonal(l_matrix) 
+    exps = torch.tensor(np.flip(np.arange(0, n) + 1.).copy(), dtype=l_matrix.dtype)
+    return n * np.log(2.) + torch.sum(torch.mul(exps, torch.log(torch.abs(diag_l)))) 
 
 
 class BSGP(nn.Module):
  
     def __init__(self, X, Y, kernel, likelihood, prior_type, inputs, outputs,
-                 minibatch_size=100, window_size=64, n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_lengthscale=2.,
-                 prior_variance=0.05, prior_lik_var=0.05):
+                 minibatch_size=100, window_size=64, n_data=None, n_inducing=None, inducing_points_init=None, full_cov=False, prior_kernel=None, prior_lik_var=0.05):
         super(BSGP, self).__init__()
         self.kern = kernel
         self.likelihood = likelihood
@@ -53,8 +59,7 @@ class BSGP(nn.Module):
         self.outputs = outputs
         self.minibatch_size = minibatch_size
         self.data_iter = 0
-        self.prior_lengthscale = prior_lengthscale
-        self.prior_variance = prior_variance
+        self.prior_kernel = prior_kernel
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
         # samples window
@@ -120,14 +125,49 @@ class BSGP(nn.Module):
         return y_mean, y_var
 
     def log_prior_hyper(self):
-        log_lengthscales = torch.log(self.kern.lengthscales.get())
-        log_variance = torch.log(self.kern.variance.get())
-        log_lik_var = torch.log(self.likelihood.variance.get())
-
         log_prob = 0.
-        log_prob += -torch.sum(torch.square(log_lengthscales - np.log(self.prior_lengthscale))) / 2.
-        log_prob += -torch.sum(torch.square(log_variance - np.log(self.prior_variance))) / 2.
-        log_prob += -torch.sum(torch.square(log_lik_var - np.log(self.prior_lik_var))) / 2.
+
+        # prior on kernel precision
+        if self.kern.rbf_type == 'ACD':
+            prior_precision_type = self.prior_kernel['type']
+            L = self.kern.L.get()
+            precision = self.kern.precision # Λ
+            diag_precision = torch.diagonal(precision) # diag(Λ)
+            offdiag_precision = precision[~torch.eye(precision.size(0), dtype=torch.bool)].view(precision.size(0), -1) # Λ_
+
+            if prior_precision_type == 'laplace':
+                # Laplace(Λ_|0,b) + N(diag(Λ)|0,1)
+                b = torch.tensor(self.prior_kernel['b'], dtype=precision.dtype)
+                log_prob += loglaplace(offdiag_precision, b)
+                log_prob += lognormal(diag_precision, mu=0., var=1.)
+            elif prior_precision_type == 'wishart':
+                # W(Λ|0,)
+                log_prob += logwishart(L, precision)
+            elif prior_precision_type == 'invwishart':
+                # IW(Λ|0,b)
+                log_prob += loginvwishart(L, precision)
+            elif prior_precision_type == 'normal':
+                # N(Λ|m,v) 
+                m = torch.tensor(self.prior_kernel['m'], dtype=precision.dtype)
+                v = torch.tensor(self.prior_kernel['v'], dtype=precision.dtype)
+                log_prob += lognormal(precision, mu=m, var=v)
+            elif prior_precision_type == 'horseshoe':
+                # HS(Λ_|scale) + N(diag(Λ)|0,1)
+                scale = torch.tensor(self.prior_kernel['global_shrinkage'], dtype=precision.dtype)
+                log_prob += loghorseshoe(offdiag_precision, scale)
+                log_prob += lognormal(diag_precision, mu=0., var=1.)
+            
+            
+            log_prob += logdet_jacobian(self.kern)
+
+        # prior on kernel log-lengthscales
+        else:
+            log_lengthscales = torch.log(self.kern.lengthscales.get())
+            log_prob += -torch.sum(torch.square(log_lengthscales)) / 2.
+
+        # prior on kernel log-variance
+        log_variance = torch.log(self.kern.variance.get())
+        log_prob += -torch.sum(torch.square(log_variance - np.log(0.05))) / 2.
 
         return log_prob
 
@@ -186,7 +226,7 @@ class BSGP(nn.Module):
     def get_minibatch(self, device):
         assert self.N >= self.minibatch_size
         if self.N == self.minibatch_size:
-            return torch.tensor(self.X, dtype=torch.float64, device=device), torch.tensor(self.Y, dtype=torch.float64, device=device)
+            return self.X, self.Y
 
         if self.N < self.data_iter + self.minibatch_size:
             shuffle = np.random.permutation(self.N)
@@ -197,7 +237,7 @@ class BSGP(nn.Module):
         X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
         Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
         self.data_iter += self.minibatch_size
-        return torch.tensor(X_batch, dtype=torch.float64, device=device), torch.tensor(Y_batch, dtype=torch.float64, device=device)
+        return X_batch, Y_batch
     
     def save_sample(self, sample_dir, idx):
         torch.save(self.gp_params,
@@ -225,7 +265,17 @@ class BSGP(nn.Module):
             gp_params = torch.load(self.gp_samples[idx])
 
         return gp_params
-
+    
+    def __str__(self):
+        str = [
+            ' BSGP',
+            ' Input dim = %d' % self.X.size(0),
+            ' Output dim = %d' % self.X.size(1),
+            ' Gradient clipping = %d' % False,
+            ' Prior kernel type = %s' % self.prior_kernel
+            ]
+        return '\n'.join(str)
+    
     @property
     def sampling_params(self):
         return list(self.parameters())[:-1]  # U, Z, kernel.variance, kernel.lengthscales
