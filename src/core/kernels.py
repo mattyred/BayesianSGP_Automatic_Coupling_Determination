@@ -67,11 +67,8 @@ class Kern(torch.nn.Module):
         assert X.size(1) == self.input_dim
 
         return X, X2
-
+    
 class RBF(Kern):
-    """
-    The radial basis function (RBF) or squared exponential kernel
-    """
     def __init__(self, input_dim, variance=1.0, init_val=None,
                  active_dims=None, ARD=False, ACD=False, name=None):
         super(RBF, self).__init__(input_dim, active_dims, name=name)

@@ -19,7 +19,7 @@ import torch
 
 
 def gaussian(x, mu, var):
-    return -0.5 * (torch.log(2 * torch.tensor(np.pi)) + torch.log(torch.tensor(var)) + (mu-x)**2/var)
+    return -0.5 * (float(np.log(2 * np.pi)) + torch.log(var) + (mu-x)**2/var)
 
 def lognormal(x, mu, var):
     return -torch.sum(torch.square((x-mu)/var)) / 2.
@@ -29,11 +29,11 @@ def loglaplace(x, b):
 
 def logwishart(L, P):
     n = L.size(0)
-    return -torch.sum(torch.log(torch.diag(torch.abs(L)))) - torch.trace(n*P) / 2.0
+    return -torch.sum(torch.log(torch.diagonal(torch.abs(L)))) - torch.trace(n*P) / 2.0
 
 def loginvwishart(L, P):
     n = L.size(0)
-    return -(2*n + 1)  * torch.sum(torch.log(torch.diag(torch.abs(L)))) - torch.trace(torch.inverse(P)) / 2.0
+    return -(2*n + 1)  * torch.sum(torch.log(torch.diagonal(torch.abs(L)))) - torch.trace(torch.inverse(P)) / 2.0
 
 def loghorseshoe(P, scale):
     K = 1 / torch.sqrt(2 * torch.tensor(np.pi)**3)

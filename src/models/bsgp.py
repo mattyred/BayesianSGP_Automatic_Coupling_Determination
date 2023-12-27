@@ -124,13 +124,14 @@ class BSGP(nn.Module):
         
         return y_mean, y_var
 
+    
     def log_prior_hyper(self):
         log_prob = 0.
 
         # prior on kernel precision
         if self.kern.rbf_type == 'ACD':
             prior_precision_type = self.prior_kernel['type']
-            L = self.kern.L.get()
+            L = self.kern.l_matrix
             precision = self.kern.precision # Λ
             diag_precision = torch.diagonal(precision) # diag(Λ)
             offdiag_precision = precision[~torch.eye(precision.size(0), dtype=torch.bool)].view(precision.size(0), -1) # Λ_
@@ -163,7 +164,7 @@ class BSGP(nn.Module):
         # prior on kernel log-lengthscales
         else:
             log_lengthscales = torch.log(self.kern.lengthscales.get())
-            log_prob += -torch.sum(torch.square(log_lengthscales)) / 2.
+            log_prob += -torch.sum(torch.square(log_lengthscales - np.log(2.))) / 2.
 
         # prior on kernel log-variance
         log_variance = torch.log(self.kern.variance.get())
@@ -197,7 +198,7 @@ class BSGP(nn.Module):
         for k in range(K):
             X_batch, Y_batch = self.get_minibatch(device)
             log_prob = self.log_prob(X_batch, Y_batch)
-            self.zero_grad()
+            sampler.zero_grad()
             loss = -log_prob
             loss.backward()
             sampler.step()
@@ -272,7 +273,8 @@ class BSGP(nn.Module):
             ' Input dim = %d' % self.X.size(0),
             ' Output dim = %d' % self.X.size(1),
             ' Gradient clipping = %d' % False,
-            ' Prior kernel type = %s' % self.prior_kernel
+            ' Kernel type = %s' % self.kern.rbf_type,
+            ' Prior ACD = %s' % self.prior_kernel
             ]
         return '\n'.join(str)
     

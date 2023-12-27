@@ -16,7 +16,7 @@ from scipy.special import logsumexp
 from src.misc.settings import settings
 device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
 
-def save_samples(folder_path, model):
+def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
     D_in = model.kern.input_dim
 
@@ -24,19 +24,27 @@ def save_samples(folder_path, model):
         l_size = model.kern.L.size(0) # D_in*(D_in+1)//2
         kernel_cov_data = np.empty((S, l_size), dtype=np.float64)
         param_name =  'kern.L'
+        kernel_prior = model.prior_kernel['type']
     elif model.kern.rbf_type == 'ARD':
         kernel_cov_data = np.empty((S, D_in), dtype=np.float64)
         param_name =  'kern.lengthscales'
+        kernel_prior = 'normal'
     else:
         kernel_cov_data = np.empty((S, 1), dtype=np.float64)
         param_name = 'kern.lengthscales'
+        kernel_prior = 'normal'
 
     for i in range(S):
         gp_params_dict = model.gp_samples[i]
         kernel_cov_data[i,:] = gp_params_dict[param_name].detach()
 
+    npz_dict = {param_name: kernel_cov_data, 
+                'D': D_in, 
+                'kernel': model.kern.rbf_type,
+                'prior': kernel_prior,
+                'mnll':  kwargs['mnll']}
     filepath = os.path.join(folder_path, 'kernel_samples')
-    np.savez(filepath, param_name=kernel_cov_data)
+    np.savez(filepath, **npz_dict)
     return 0
 
 
@@ -55,14 +63,14 @@ def main():
         full_cov = False
         epsilon = 0.01
         mdecay = 0.05
-        num_posterior_samples = 50
+        num_posterior_samples = 100
         mcmc_measures = True
         n_burnin_iters = 100
         collect_every = 10 # thinning
         K = 10
         model = 'BSGP'
         kernel_type = 'ACD'
-        prior_kernel =  {'type': 'laplace', 'b': 0.01, 'global_shrinkage': 0.1}
+        prior_kernel =  {'type': 'invwishart', 'b': 0.1, 'global_shrinkage': 0.1}
     args = ARGS()
 
     # Results directyory
@@ -110,7 +118,7 @@ def main():
     print('TEST MNLL = %5.2f' % (mnll))
 
     # Save posterior samples
-    save_samples(kernel_dir, model)
+    save_samples(kernel_dir, model, mnll=mnll)
 
 if __name__ =='__main__':
     main()
