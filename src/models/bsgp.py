@@ -62,9 +62,16 @@ class BSGP(nn.Module):
         self.prior_kernel = prior_kernel
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
-        # samples window
-        self.window = []
-        self.window_size = window_size
+        # sampling  parameters
+        self.sampling_params_names = ['Z', 'U', 'kern.variance']
+        if self.kern.rbf_type == 'ARD':
+            self.sampling_params_names.append('kern.lengthscales')
+        elif self.kern.rbf_type == 'ACD':
+            self.sampling_params_names.append('kern.L')
+        # optimization parameters
+        self.optimization_params_names = []
+        if len(self.likelihood.state_dict()) > 0:
+            self.optimization_params_names.append('likelihood.variance')
         
         if n_data is None:
             self.N = X.shape[0]
@@ -280,11 +287,13 @@ class BSGP(nn.Module):
     
     @property
     def sampling_params(self):
-        return list(self.parameters())[:-1]  # U, Z, kernel.variance, kernel.lengthscales
+        return [dict(self.named_parameters())[key] for key in self.sampling_params_names]
+        # return list(self.parameters())[:-1]  # U, Z, kernel.variance, kernel.lengthscales
 
     @property
     def optim_params(self):
-        return list(self.parameters())[-1] # likelihood.variance
+        return [dict(self.named_parameters())[key] for key in self.optimization_params_names]
+        #  return list(self.parameters())[-1] # likelihood.variance
     
     @property
     def gp_params(self):

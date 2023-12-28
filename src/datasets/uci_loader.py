@@ -7,9 +7,12 @@ from sklearn.model_selection import KFold
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
+DATASET_TASK = {'boston': 'regression',
+                'breast': 'classification'}
+
 class UCIDataset():
 
-    def __init__(self, dataset_path, k=-1, seed=0):
+    def __init__(self, dataset_path, k=-1, standardize=True, seed=0):
         #dataset_path = ('./data/' + dataset + '.pth')
         logger.info('Loading dataset from %s' % dataset_path)
         dataset = TensorDataset(*torch.load(dataset_path))
@@ -32,8 +35,9 @@ class UCIDataset():
                 self.X_test_kfold.append(torch.tensor(X_test, dtype=torch.float64))
                 # Standardize data
                 Y_train_mean, Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
-                Y_train = (Y_train - Y_train_mean) / Y_train_std
-                Y_test = (Y_test - Y_train_mean) / Y_train_std
+                if standardize:
+                    Y_train = (Y_train - Y_train_mean) / Y_train_std
+                    Y_test = (Y_test - Y_train_mean) / Y_train_std
                 self.Y_train_kfold.append(torch.tensor(Y_train, dtype=torch.float64))
                 self.Y_test_kfold.append(torch.tensor(Y_test, dtype=torch.float64))
                 self.Y_train_mean_kfold.append(Y_train_mean)
@@ -55,5 +59,6 @@ class UCIDataset():
             """
             # standardize Y labels
             self.Y_train_mean, self.Y_train_std = self.Y_train.mean(0), self.Y_train.std(0) + 1e-9
-            self.Y_train = (self.Y_train - self.Y_train_mean) / self.Y_train_std
-            self.Y_test = (self.Y_test - self.Y_train_mean) / self.Y_train_std
+            if standardize:
+                self.Y_train = (self.Y_train - self.Y_train_mean) / self.Y_train_std
+                self.Y_test = (self.Y_test - self.Y_train_mean) / self.Y_train_std

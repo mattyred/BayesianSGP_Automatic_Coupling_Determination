@@ -1,17 +1,11 @@
-import torch
 import numpy as np
-from src.datasets.uci_loader import UCIDataset
-import seaborn as sns
-from src.model_builder import build_bsgp_model, build_bgp_model, compute_mnll
+from src.datasets.uci_loader import UCIDataset, DATASET_TASK
+from src.model_builder import build_model, compute_mnll, compute_accuracy
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 import torch.optim as optim
 #from torchviz import make_dot
-import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, TensorDataset
 from src.misc.utils import inf_loop, ensure_dir, next_path
 import os
-from scipy.stats import norm
-from scipy.special import logsumexp
 
 from src.misc.settings import settings
 device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
@@ -49,7 +43,11 @@ def save_samples(folder_path, model, **kwargs):
 
 
 def main():
-    data_uci = UCIDataset(dataset_path='data/uci/boston.pth', k=-1, seed=0)
+    dataset_name = 'breast'
+    task = DATASET_TASK[dataset_name]
+    standardize = task == 'regression'
+    data_uci = UCIDataset(dataset_path=f'data/uci/{dataset_name}.pth', k=-1, standardize=standardize, seed=0)
+
     N, D = data_uci.X_train.shape
     Ystd = data_uci.Y_train_std.numpy()
     print(f'X-train: {N, D}')
@@ -65,7 +63,7 @@ def main():
         mdecay = 0.05
         num_posterior_samples = 100
         mcmc_measures = True
-        n_burnin_iters = 100
+        n_burnin_iters = 500
         collect_every = 10 # thinning
         K = 10
         model = 'BSGP'
@@ -81,26 +79,26 @@ def main():
     ensure_dir(kernel_dir)
 
     # Model initialization
-    if args.model == 'BGP':
-        model = build_bgp_model(data_uci.X_train, data_uci.Y_train, args)
-    elif args.model == 'BSGP':
-        model = build_bsgp_model(data_uci.X_train, data_uci.Y_train, args)
+    model = build_model(data_uci.X_train, data_uci.Y_train, args, model=args.model, task=task)
     model = model.to(device)
     bsgp_sampler = AdaptiveSGHMC(model.sampling_params,
                                 lr=args.epsilon, num_burn_in_steps=2000,
                                 mdecay=args.mdecay, scale_grad=N)
-    bsgp_optimizer = optim.Adam([model.optim_params], lr=args.adam_lr)
+    if len(model.optimization_params_names) > 0:
+        bsgp_optimizer = optim.Adam(model.optim_params, lr=args.adam_lr)
     n_sampling_iters = args.n_burnin_iters + args.num_posterior_samples * args.collect_every
     
     iter = 0
     sample_idx = 0
     #print(f'GP Model: {args.model}')
     print(f'Number of iterations: {n_sampling_iters}')
+    print(f'Task: {task}')
     print(model)
     for iter in range(n_sampling_iters):
 
         log_prob = model.train_step(device, bsgp_sampler, K=args.K)
-        log_prob = model.optimizer_step(device, bsgp_optimizer)
+        if len(model.optimization_params_names) > 0:
+            log_prob = model.optimizer_step(device, bsgp_optimizer)
 
         if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
             model.save_sample(samples_dir, sample_idx)
@@ -116,6 +114,11 @@ def main():
     ms, vs = model.predict_y(data_uci.X_test)
     mnll = compute_mnll(ms, vs, data_uci.Y_test, len(model.gp_samples), Ystd)
     print('TEST MNLL = %5.2f' % (mnll))
+
+    # Task-specific performance
+    if task == 'classification':
+        accuracy = compute_accuracy(ms, vs, data_uci.Y_test, len(model.gp_samples), Ystd)
+        print('TEST Error-Rate = %5.2f' % (1-accuracy))
 
     # Save posterior samples
     save_samples(kernel_dir, model, mnll=mnll)

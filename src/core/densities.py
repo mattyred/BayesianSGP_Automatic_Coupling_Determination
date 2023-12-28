@@ -17,6 +17,8 @@ import numpy as np
 import scipy.special
 import torch
 
+def bernoulli(p, y):
+    return torch.log(y*p+(1-y)*(1-p))
 
 def gaussian(x, mu, var):
     return -0.5 * (float(np.log(2 * np.pi)) + torch.log(var) + (mu-x)**2/var)
