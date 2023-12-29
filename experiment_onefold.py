@@ -1,4 +1,6 @@
+import torch
 import numpy as np
+import argparse
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
 from src.model_builder import build_model, compute_mnll, compute_accuracy
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
@@ -8,7 +10,7 @@ from src.misc.utils import inf_loop, ensure_dir, next_path
 import os
 
 from src.misc.settings import settings
-device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
@@ -30,7 +32,7 @@ def save_samples(folder_path, model, **kwargs):
 
     for i in range(S):
         gp_params_dict = model.gp_samples[i]
-        kernel_cov_data[i,:] = gp_params_dict[param_name].detach()
+        kernel_cov_data[i,:] = gp_params_dict[param_name].cpu().detach()
 
     npz_dict = {param_name: kernel_cov_data, 
                 'D': D_in, 
@@ -52,24 +54,10 @@ def main():
     Ystd = data_uci.Y_train_std.numpy()
     print(f'X-train: {N, D}')
 
-    class ARGS():
-        num_inducing = 100
-        minibatch_size = 1000
-        output_dim= 1
-        adam_lr = 0.01
-        prior_inducing_type = "normal"
-        full_cov = False
-        epsilon = 0.01
-        mdecay = 0.05
-        num_posterior_samples = 100
-        mcmc_measures = True
-        n_burnin_iters = 500
-        collect_every = 10 # thinning
-        K = 10
-        model = 'BSGP'
-        kernel_type = 'ACD'
-        prior_kernel =  {'type': 'invwishart', 'b': 0.1, 'global_shrinkage': 0.1}
-    args = ARGS()
+    # Read ACD prior
+    prior_kernel = None
+    if args.kernel_type == 'ACD':
+        prior_kernel =  {'type': args.prior_kernel_type, 'b': args.b, 'global_shrinkage': args.global_shrinkage}
 
     # Results directyory
     run_path = next_path(os.path.dirname(os.path.realpath(__file__)) + '/results/' + '/run-%04d/')
@@ -77,9 +65,10 @@ def main():
     kernel_dir = os.path.join(run_path, 'kernel')
     ensure_dir(samples_dir)
     ensure_dir(kernel_dir)
+    print(f'Results folder: {run_path}')
 
     # Model initialization
-    model = build_model(data_uci.X_train, data_uci.Y_train, args, model=args.model, task=task)
+    model = build_model(data_uci.X_train, data_uci.Y_train, args, model=args.model, prior_kernel=prior_kernel, task=task)
     model = model.to(device)
     bsgp_sampler = AdaptiveSGHMC(model.sampling_params,
                                 lr=args.epsilon, num_burn_in_steps=2000,
@@ -90,7 +79,6 @@ def main():
     
     iter = 0
     sample_idx = 0
-    #print(f'GP Model: {args.model}')
     print(f'Number of iterations: {n_sampling_iters}')
     print(f'Task: {task}')
     print(model)
@@ -111,7 +99,7 @@ def main():
 
     # Measure performance
     model.set_samples(samples_dir, cache=True)
-    ms, vs = model.predict_y(data_uci.X_test)
+    ms, vs = model.predict_y(data_uci.X_test.to(device))
     mnll = compute_mnll(ms, vs, data_uci.Y_test, len(model.gp_samples), Ystd)
     print('TEST MNLL = %5.2f' % (mnll))
 
@@ -119,9 +107,30 @@ def main():
     if task == 'classification':
         accuracy = compute_accuracy(ms, vs, data_uci.Y_test, len(model.gp_samples), Ystd)
         print('TEST Error-Rate = %5.2f' % (1-accuracy))
+    elif task == 'regression':
+        # compute nrmse
+        pass
 
     # Save posterior samples
     save_samples(kernel_dir, model, mnll=mnll)
 
 if __name__ =='__main__':
+    parser = argparse.ArgumentParser(description='BSGPtorch - onefold')
+    parser.add_argument('--num_inducing', type=int, default=100)
+    parser.add_argument('--minibatch_size', type=int, default=1000)
+    parser.add_argument('--adam_lr', type=float, default=0.01)
+    parser.add_argument('--prior_inducing_type', type=str, choices=["normal", "uniform", "strauss"], default="normal")
+    parser.add_argument('--full_cov', type=bool, default=False)
+    parser.add_argument('--epsilon', type=float, default=0.01)
+    parser.add_argument('--mdecay', type=float, default=0.05)
+    parser.add_argument('--num_posterior_samples', type=int, default=100)
+    parser.add_argument('--n_burnin_iters', type=int, default=500)
+    parser.add_argument('--collect_every', type=int, default=10)
+    parser.add_argument('--K', type=int, default=10)
+    parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
+    parser.add_argument('--kernel_type', type=str, choices=["ARD", "ACD"], default="ACD")
+    parser.add_argument('--prior_kernel_type', type=str, choices=["wishart", "invwishart", "laplace", "horseshoe", "normal"], default="wishart")
+    parser.add_argument('--b', type=float, default=0.1)
+    parser.add_argument('--global_shrinkage', type=float, default=0.1)
+    args = parser.parse_args()
     main()

@@ -11,7 +11,7 @@ from scipy.special import logsumexp
 from .core.likelihoods import Gaussian, Bernoulli
 
 
-def build_model(X, Y, args, model='BSGP', task='regression'):
+def build_model(X, Y, args, model='BSGP', task='regression', prior_kernel=None):
     assert model == 'BSGP' or model == 'BGP'
     assert task == 'regression' or 'classification' 
 
@@ -36,7 +36,7 @@ def build_model(X, Y, args, model='BSGP', task='regression'):
                     kernel=kern,
                     likelihood=lik,
                     prior_type=args.prior_inducing_type,
-                    prior_kernel=args.prior_kernel,
+                    prior_kernel=prior_kernel,
                     inputs=D_in,
                     outputs=D_out,
                     minibatch_size=mb_size,

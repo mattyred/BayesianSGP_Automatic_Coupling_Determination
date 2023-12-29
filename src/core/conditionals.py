@@ -70,10 +70,10 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
     num_func = f.size(1)  # K
     Kmn = kern.K(X, Xnew)
     Kmm = kern.K(X, X) + torch.eye(num_data, dtype=X.dtype, device=X.device) * jitter_level
-    Lm = torch.cholesky(Kmm, upper=False)
+    Lm = torch.linalg.cholesky(Kmm, upper=False)
 
     # Compute the projection matrix A
-    A, _ = torch.solve(Kmn, Lm)
+    A = torch.linalg.solve(Lm, Kmn)
 
     # compute the covariance due to the conditioning
     if full_cov:
@@ -87,7 +87,7 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
     # another backsubstitution in the unwhitened case 
     # (complete the inverse of the cholesky decomposition)
     if not whiten:
-        A, _ = torch.solve(A, Lm.t())
+        A = torch.linalg.solve_triangular(Lm.t(), A)
 
     # construct the conditional mean
     fmean = torch.matmul(A.t(), f)

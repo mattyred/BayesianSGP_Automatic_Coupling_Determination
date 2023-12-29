@@ -127,10 +127,10 @@ class RBF(Kern):
         X2Lambda = torch.matmul(X2, precision) # (M, input_dium)
         XX2LambdaT = torch.matmul(X, X2Lambda.t()) # (N, M)
         # compute z1ᵀ 
-        ones_M = torch.ones(M, 1, dtype=torch.float64) # (M, 1)
+        ones_M = torch.ones(M, 1, device=precision.device, dtype=torch.float64) # (M, 1)
         zcol = torch.matmul(z, ones_M.t()) # (N, M)
         # compute 1z2ᵀ 
-        ones_N = torch.ones(N, 1, dtype=torch.float64) # (N, 1)
+        ones_N = torch.ones(N, 1, device=precision.device, dtype=torch.float64) # (N, 1)
         zrow = torch.matmul(ones_N, z2.t()) # (N, M)
 
         dist = zcol - 2*XX2LambdaT + zrow # (N, M)
@@ -143,7 +143,7 @@ class RBF(Kern):
     
     def _fill_triangular(self):
         lower_indices = torch.tril_indices(self.input_dim, self.input_dim) # (2, lsize)
-        l_matrix = torch.zeros(self.input_dim, self.input_dim, dtype=self.L.dtype) # (input_dim, input_dim)
+        l_matrix = torch.zeros(self.input_dim, self.input_dim, device=self.L.device, dtype=self.L.dtype) # (input_dim, input_dim)
         l_matrix[lower_indices.tolist()] = self.L.get()
         return l_matrix
     

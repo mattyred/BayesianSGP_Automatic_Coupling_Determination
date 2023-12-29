@@ -42,7 +42,7 @@ def logdet_jacobian(kernel, eps=1e-6):
     l_matrix = kernel.l_matrix
     n = l_matrix.size(0)
     diag_l = torch.diagonal(l_matrix) 
-    exps = torch.tensor(np.flip(np.arange(0, n) + 1.).copy(), dtype=l_matrix.dtype)
+    exps = torch.tensor(np.flip(np.arange(0, n) + 1.).copy(), device=l_matrix.device, dtype=l_matrix.dtype)
     return n * np.log(2.) + torch.sum(torch.mul(exps, torch.log(torch.abs(diag_l)))) 
 
 
@@ -227,14 +227,14 @@ class BSGP(nn.Module):
             gp_params = self.load_samples(i)
             self.gp_params = gp_params
             y_mean, y_var = self.predict(X)
-            ms.append(y_mean.detach())
-            vs.append(y_var.detach())
+            ms.append(y_mean.cpu().detach())
+            vs.append(y_var.cpu().detach())
         return np.stack(ms, 0), np.stack(vs, 0)
     
     def get_minibatch(self, device):
         assert self.N >= self.minibatch_size
         if self.N == self.minibatch_size:
-            return self.X, self.Y
+            return self.X.to(device), self.Y.to(device)
 
         if self.N < self.data_iter + self.minibatch_size:
             shuffle = np.random.permutation(self.N)
@@ -245,7 +245,7 @@ class BSGP(nn.Module):
         X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
         Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
         self.data_iter += self.minibatch_size
-        return X_batch, Y_batch
+        return X_batch.to(device), Y_batch.to(device)
     
     def save_sample(self, sample_dir, idx):
         torch.save(self.gp_params,
@@ -283,7 +283,7 @@ class BSGP(nn.Module):
             ' Kernel type = %s' % self.kern.rbf_type,
             ' Prior ACD = %s' % self.prior_kernel
             ]
-        return '\n'.join(str)
+        return 'Model:' + '\n'.join(str)
     
     @property
     def sampling_params(self):
