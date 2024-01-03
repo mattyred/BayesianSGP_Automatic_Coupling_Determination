@@ -201,25 +201,35 @@ class BSGP(nn.Module):
 
         return log_prob
 
-    def train_step(self, device, sampler, K=10):
+    def _clip_grad_value(self, params, clip_value):
+        grads = [p.grad for p in params if p.grad is not None]
+        with torch.no_grad():
+            for grad in grads:
+                torch.clamp(grad, min=-clip_value, max=clip_value)
+
+    def train_step(self, device, sampler, K=10, clip_value=None):
         for k in range(K):
             X_batch, Y_batch = self.get_minibatch(device)
             log_prob = self.log_prob(X_batch, Y_batch)
             sampler.zero_grad()
             loss = -log_prob
+            if clip_value is not None:
+                self._clip_grad_value(self.sampling_params, clip_value)
             loss.backward()
             sampler.step()
         return log_prob
 
-    def optimizer_step(self, device, optimizer):
+    def optimizer_step(self, device, optimizer, clip_value=None):
         X_batch, Y_batch = self.get_minibatch(device)
         log_prob = self.log_prob(X_batch, Y_batch)
         optimizer.zero_grad()
         loss = -log_prob
+        if clip_value is not None:
+            self._clip_grad_value(self.optim_params, clip_value)
         loss.backward()
         optimizer.step()
         return log_prob
-    
+
     def predict_y(self, X):
         S = len(self.gp_samples)
         ms, vs = [], []
@@ -279,7 +289,6 @@ class BSGP(nn.Module):
             ' BSGP',
             ' Input dim = %d' % self.X.size(0),
             ' Output dim = %d' % self.X.size(1),
-            ' Gradient clipping = %d' % False,
             ' Kernel type = %s' % self.kern.rbf_type,
             ' Prior ACD = %s' % self.prior_kernel
             ]

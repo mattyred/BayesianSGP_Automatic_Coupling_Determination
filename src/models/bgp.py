@@ -6,8 +6,15 @@ import os
 
 from scipy.cluster.vq import kmeans2
 
-from ..core.conditionals import conditional, conditional2
 from ..misc.utils import get_all_files
+from ..core.densities import *
+
+def logdet_jacobian(kernel, eps=1e-6):
+    l_matrix = kernel.l_matrix
+    n = l_matrix.size(0)
+    diag_l = torch.diagonal(l_matrix) 
+    exps = torch.tensor(np.flip(np.arange(0, n) + 1.).copy(), device=l_matrix.device, dtype=l_matrix.dtype)
+    return n * np.log(2.) + torch.sum(torch.mul(exps, torch.log(torch.abs(diag_l)))) 
 
 class BGP(nn.Module):
  
@@ -24,6 +31,16 @@ class BGP(nn.Module):
         self.prior_kernel = prior_kernel
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
+        # sampling  parameters
+        self.sampling_params_names = ['kern.variance']
+        if self.kern.rbf_type == 'ARD':
+            self.sampling_params_names.append('kern.lengthscales')
+        elif self.kern.rbf_type == 'ACD':
+            self.sampling_params_names.append('kern.L')
+        # optimization parameters
+        self.optimization_params_names = []
+        if len(self.likelihood.state_dict()) > 0:
+            self.optimization_params_names.append('likelihood.variance')
         
         if n_data is None:
             self.N = X.shape[0]
@@ -38,10 +55,10 @@ class BGP(nn.Module):
     def conditional(self, Xnew):
         Kx = self.kern.K(self.X, Xnew)
         K = self.kern.K(self.X) + torch.eye(self.X.size(0), dtype=self.X.dtype, device=self.X.device) * self.likelihood.variance.get()
-        L = torch.cholesky(K, upper=False)
+        L = torch.linalg.cholesky(K, upper=False)
 
-        A, _ = torch.solve(Kx, L)  # could use triangular solve, note gesv has B first, then A in AX=B
-        V, _ = torch.solve(self.Y - self.mean_function(self.X), L) # could use triangular solve
+        A = torch.linalg.solve(L, Kx)  
+        V = torch.linalg.solve(L, self.Y - self.mean_function(self.X))
 
         fmean = torch.mm(A.t(), V) + self.mean_function(Xnew)
         if self.full_cov:
@@ -61,14 +78,49 @@ class BGP(nn.Module):
         return y_mean, y_var
 
     def log_prior_hyper(self):
-        log_lengthscales = torch.log(self.kern.lengthscales.get())
-        log_variance = torch.log(self.kern.variance.get())
-        log_lik_var = torch.log(self.likelihood.variance.get())
-
         log_prob = 0.
-        log_prob += -torch.sum(torch.square(log_lengthscales - np.log(self.prior_lengthscale))) / 2.
-        log_prob += -torch.sum(torch.square(log_variance - np.log(self.prior_variance))) / 2.
-        log_prob += -torch.sum(torch.square(log_lik_var - np.log(self.prior_lik_var))) / 2.
+
+        # prior on kernel precision
+        if self.kern.rbf_type == 'ACD':
+            prior_precision_type = self.prior_kernel['type']
+            L = self.kern.l_matrix
+            precision = self.kern.precision # Λ
+            diag_precision = torch.diagonal(precision) # diag(Λ)
+            offdiag_precision = precision[~torch.eye(precision.size(0), dtype=torch.bool)].view(precision.size(0), -1) # Λ_
+
+            if prior_precision_type == 'laplace':
+                # Laplace(Λ_|0,b) + N(diag(Λ)|0,1)
+                b = torch.tensor(self.prior_kernel['b'], dtype=precision.dtype)
+                log_prob += loglaplace(offdiag_precision, b)
+                log_prob += lognormal(diag_precision, mu=0., var=1.)
+            elif prior_precision_type == 'wishart':
+                # W(Λ|0,)
+                log_prob += logwishart(L, precision)
+            elif prior_precision_type == 'invwishart':
+                # IW(Λ|0,b)
+                log_prob += loginvwishart(L, precision)
+            elif prior_precision_type == 'normal':
+                # N(Λ|m,v) 
+                m = torch.tensor(self.prior_kernel['m'], dtype=precision.dtype)
+                v = torch.tensor(self.prior_kernel['v'], dtype=precision.dtype)
+                log_prob += lognormal(precision, mu=m, var=v)
+            elif prior_precision_type == 'horseshoe':
+                # HS(Λ_|scale) + N(diag(Λ)|0,1)
+                scale = torch.tensor(self.prior_kernel['global_shrinkage'], dtype=precision.dtype)
+                log_prob += loghorseshoe(offdiag_precision, scale)
+                log_prob += lognormal(diag_precision, mu=0., var=1.)
+            
+            
+            log_prob += logdet_jacobian(self.kern)
+
+        # prior on kernel log-lengthscales
+        else:
+            log_lengthscales = torch.log(self.kern.lengthscales.get())
+            log_prob += -torch.sum(torch.square(log_lengthscales - np.log(2.))) / 2.
+
+        # prior on kernel log-variance
+        log_variance = torch.log(self.kern.variance.get())
+        log_prob += -torch.sum(torch.square(log_variance - np.log(0.05))) / 2.
 
         return log_prob
 
@@ -91,25 +143,35 @@ class BGP(nn.Module):
 
         return log_prob
 
-    def train_step(self, device, sampler, K=10):
+    def _clip_grad_value(self, params, clip_value):
+        grads = [p.grad for p in params if p.grad is not None]
+        with torch.no_grad():
+            for grad in grads:
+                torch.clamp(grad, min=-clip_value, max=clip_value)
+
+    def train_step(self, device, sampler, K=10, clip_value=None):
         for k in range(K):
             X_batch, Y_batch = self.get_minibatch(device)
             log_prob = self.log_prob(X_batch, Y_batch)
-            self.zero_grad()
+            sampler.zero_grad()
             loss = -log_prob
+            if clip_value is not None:
+                self._clip_grad_value(self.sampling_params, clip_value)
             loss.backward()
             sampler.step()
         return log_prob
 
-    def optimizer_step(self, device, optimizer):
+    def optimizer_step(self, device, optimizer, clip_value=None):
         X_batch, Y_batch = self.get_minibatch(device)
         log_prob = self.log_prob(X_batch, Y_batch)
         optimizer.zero_grad()
         loss = -log_prob
+        if clip_value is not None:
+            self._clip_grad_value(self.optim_params, clip_value)
         loss.backward()
         optimizer.step()
         return log_prob
-    
+
     def predict_y(self, X):
         S = len(self.gp_samples)
         ms, vs = [], []
@@ -117,14 +179,14 @@ class BGP(nn.Module):
             gp_params = self.load_samples(i)
             self.gp_params = gp_params
             y_mean, y_var = self.predict(X)
-            ms.append(y_mean.detach())
-            vs.append(y_var.detach())
+            ms.append(y_mean.cpu().detach())
+            vs.append(y_var.cpu().detach())
         return np.stack(ms, 0), np.stack(vs, 0)
     
     def get_minibatch(self, device):
         assert self.N >= self.minibatch_size
         if self.N == self.minibatch_size:
-            return torch.tensor(self.X, dtype=torch.float64, device=device), torch.tensor(self.Y, dtype=torch.float64, device=device)
+            return self.X.to(device), self.Y.to(device)
 
         if self.N < self.data_iter + self.minibatch_size:
             shuffle = np.random.permutation(self.N)
@@ -135,7 +197,7 @@ class BGP(nn.Module):
         X_batch = self.X[self.data_iter:self.data_iter + self.minibatch_size, :]
         Y_batch = self.Y[self.data_iter:self.data_iter + self.minibatch_size, :]
         self.data_iter += self.minibatch_size
-        return torch.tensor(X_batch, dtype=torch.float64, device=device), torch.tensor(Y_batch, dtype=torch.float64, device=device)
+        return X_batch.to(device), Y_batch.to(device)
     
     def save_sample(self, sample_dir, idx):
         torch.save(self.gp_params,
@@ -163,14 +225,26 @@ class BGP(nn.Module):
             gp_params = torch.load(self.gp_samples[idx])
 
         return gp_params
-
+    
+    def __str__(self):
+        str = [
+            ' BGP',
+            ' Input dim = %d' % self.X.size(0),
+            ' Output dim = %d' % self.X.size(1),
+            ' Kernel type = %s' % self.kern.rbf_type,
+            ' Prior ACD = %s' % self.prior_kernel
+            ]
+        return 'Model:' + '\n'.join(str)
+    
     @property
     def sampling_params(self):
-        return list(self.parameters())[:-1]  # kernel.variance, kernel.lengthscales
+        return [dict(self.named_parameters())[key] for key in self.sampling_params_names]
+        # return list(self.parameters())[:-1]  # U, Z, kernel.variance, kernel.lengthscales
 
     @property
     def optim_params(self):
-        return list(self.parameters())[-1] # likelihood.variance
+        return [dict(self.named_parameters())[key] for key in self.optimization_params_names]
+        #  return list(self.parameters())[-1] # likelihood.variance
     
     @property
     def gp_params(self):
