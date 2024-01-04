@@ -8,6 +8,8 @@
 - Create .sh files for running
 - dump model details as json together with npz results (?)
 - Do not print Prior ACD like this, change
+- Check if sghmc is convergin when using BGP
+- Test MNLL  on training with  BGP
 
 ## Future (minor) improvments
 - Create a common gpmodel class since lots of methods are shared between BSGP and BGP

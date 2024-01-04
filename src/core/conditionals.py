@@ -87,7 +87,7 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
     # another backsubstitution in the unwhitened case 
     # (complete the inverse of the cholesky decomposition)
     if not whiten:
-        A = torch.linalg.solve_triangular(Lm.t(), A)
+        A = torch.linalg.solve_triangular(Lm.t(), A, upper=True)
 
     # construct the conditional mean
     fmean = torch.matmul(A.t(), f)
@@ -110,8 +110,7 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
         return fmean, fvar, Lm
 
     return fmean, fvar
-
-
+    
 
 def conditional2(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
                 jitter_level=1e-6, return_Lm=False, return_trace=False):

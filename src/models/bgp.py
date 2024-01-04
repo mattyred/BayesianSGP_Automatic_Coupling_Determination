@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import os
 
-from scipy.cluster.vq import kmeans2
+from ..core.conditionals import conditional
 
 from ..misc.utils import get_all_files
 from ..core.densities import *
@@ -52,6 +52,7 @@ class BGP(nn.Module):
     def mean_function(self, X):
         return torch.tensor(0, dtype=X.dtype, device=X.device)
 
+    """
     def conditional(self, Xnew):
         Kx = self.kern.K(self.X, Xnew)
         K = self.kern.K(self.X) + torch.eye(self.X.size(0), dtype=self.X.dtype, device=self.X.device) * self.likelihood.variance.get()
@@ -70,7 +71,14 @@ class BGP(nn.Module):
             fvar = fvar.expand(fvar.size(0), self.Y.size(1))
 
         return fmean, fvar
+    """
 
+    def conditional(self, X):
+        mean, var, self.Lm = conditional(X, self.X, self.kern, self.Y,
+                                         whiten=False, full_cov=self.full_cov,
+                                         return_Lm=True)
+        return mean, var
+    
     def predict(self, X):
         f_mean, f_var = self.conditional(X)
         y_mean, y_var = self.likelihood.predict_mean_and_var(f_mean, f_var)
@@ -239,7 +247,7 @@ class BGP(nn.Module):
     @property
     def sampling_params(self):
         return [dict(self.named_parameters())[key] for key in self.sampling_params_names]
-        # return list(self.parameters())[:-1]  # U, Z, kernel.variance, kernel.lengthscales
+        # return list(self.parameters())[:-1]  # kernel.variance, kernel.lengthscales
 
     @property
     def optim_params(self):
