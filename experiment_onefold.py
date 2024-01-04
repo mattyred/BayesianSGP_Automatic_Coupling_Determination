@@ -70,7 +70,7 @@ def main():
     print(f'Results folder: {run_path}')
 
     # Model initialization
-    model = build_model(data_uci.X_train, data_uci.Y_train, args, model=args.model, prior_kernel=prior_kernel, task=task)
+    model = build_model(data_uci.X_train.to(device), data_uci.Y_train.to(device), args, model=args.model, prior_kernel=prior_kernel, task=task)
     model = model.to(device)
     bsgp_sampler = AdaptiveSGHMC(model.sampling_params,
                                 lr=args.epsilon, num_burn_in_steps=2000,
@@ -130,7 +130,7 @@ if __name__ =='__main__':
     parser.add_argument('--prior_inducing_type', type=str, choices=["normal", "uniform", "strauss"], default="normal")
     parser.add_argument('--full_cov', type=bool, default=False)
     parser.add_argument('--epsilon', type=float, default=0.01)
-    parser.add_argument('--clip_by_value', type=bool, default=False)
+    parser.add_argument('--clip_by_value', action='store_true')
     parser.add_argument('--mdecay', type=float, default=0.05)
     parser.add_argument('--num_posterior_samples', type=int, default=100)
     parser.add_argument('--n_burnin_iters', type=int, default=1500)

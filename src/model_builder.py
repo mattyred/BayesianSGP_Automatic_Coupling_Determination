@@ -64,10 +64,12 @@ def compute_mnll(ms, vs, Y, num_posterior_samples=100, ystd=0.1):
         mnll = -np.mean(logsumexp(logps, axis=0) - np.log(num_posterior_samples))
         return mnll
 
-def compute_accuracy(ms, vs, Y_true, num_posterior_samples=100, ystd=0.1):
+def compute_accuracy(ms, vs, Y, num_posterior_samples=100, ystd=0.1):
     with torch.no_grad():
-        Y_pred = (ms >= 0.5).mean(0).reshape(-1)
-        accuracy = np.sum(Y_pred == Y_true.reshape(-1)) / len(Y_pred)
+        #Y_pred = (ms >= 0.5).mean(0).reshape(-1)
+        #accuracy = np.sum(Y_pred == Y.reshape(-1)) / len(Y_pred)
+        Y_pred = ms >= 0.5
+        accuracy = np.sum(np.repeat(Y[None, :, :], num_posterior_samples, axis=0) == Y_pred) / (Y.shape[0]*num_posterior_samples)
         return accuracy
     
 def compute_nrmse(ms, vs, Y, num_posterior_samples=100, ystd=0.1):

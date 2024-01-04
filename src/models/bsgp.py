@@ -205,7 +205,7 @@ class BSGP(nn.Module):
         grads = [p.grad for p in params if p.grad is not None]
         with torch.no_grad():
             for grad in grads:
-                torch.clamp(grad, min=-clip_value, max=clip_value)
+                torch.clamp_(grad, min=-clip_value, max=clip_value)
 
     def train_step(self, device, sampler, K=10, clip_value=None):
         for k in range(K):
