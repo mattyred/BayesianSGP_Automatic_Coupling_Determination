@@ -33,11 +33,13 @@ def loglaplace(x, b):
 
 def logwishart(L, P):
     n = L.size(0)
-    return -torch.sum(torch.log(torch.diagonal(torch.abs(L)))) - torch.trace(n*P) / 2.0
+    diag = torch.clamp(torch.diagonal(torch.abs(L)), min=1e-8)
+    return -torch.sum(torch.log(diag)) - torch.trace(n*P) / 2.0
 
 def loginvwishart(L, P):
-    n = L.size(0)
-    return -(2*n + 1)  * torch.sum(torch.log(torch.diagonal(torch.abs(L)))) - torch.trace(torch.inverse(P)) / 2.0
+    n = P.size(0)
+    diag = torch.clamp(torch.diagonal(torch.abs(L)), min=1e-8)
+    return -(2*n + 1)  * torch.sum(torch.log(diag)) - torch.trace(torch.inverse(P)) / 2.0
 
 def loghorseshoe(x, scale):
     """

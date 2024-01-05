@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import os
 
-from ..core.conditionals import conditional
+from ..core.conditionals import bgp_conditional, conditional
 
 from ..misc.utils import get_all_files
 from ..core.densities import *
@@ -32,7 +32,7 @@ class BGP(nn.Module):
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
         # sampling  parameters
-        self.sampling_params_names = ['kern.variance']
+        self.sampling_params_names = ['V', 'kern.variance']
         if self.kern.rbf_type == 'ARD':
             self.sampling_params_names.append('kern.lengthscales')
         elif self.kern.rbf_type == 'ACD':
@@ -47,10 +47,11 @@ class BGP(nn.Module):
         else:
             self.N = n_data
 
-        self.Lm = None
+        self.V = nn.parameter.Parameter(
+            torch.zeros((n_data, self.outputs), dtype=torch.float64),
+            requires_grad=True)
 
-    def mean_function(self, X):
-        return torch.tensor(0, dtype=X.dtype, device=X.device)
+        self.Lm = None
 
     """
     def conditional(self, Xnew):
@@ -72,15 +73,10 @@ class BGP(nn.Module):
 
         return fmean, fvar
     """
-
-    def conditional(self, X):
-        mean, var, self.Lm = conditional(X, self.X, self.kern, self.Y,
-                                         whiten=False, full_cov=self.full_cov,
-                                         return_Lm=True)
-        return mean, var
     
     def predict(self, X):
-        f_mean, f_var = self.conditional(X)
+        f_mean, f_var = conditional(X, self.X, self.kern, self.V, full_cov=self.full_cov, whiten=True, return_Lm=False)
+        #bgp_conditional(X, self.X, self.kern, self.V, full_cov=self.full_cov)
         y_mean, y_var = self.likelihood.predict_mean_and_var(f_mean, f_var)
         
         return y_mean, y_var
@@ -132,12 +128,18 @@ class BGP(nn.Module):
 
         return log_prob
 
+    def log_prior_V(self):
+        return -torch.sum(torch.square(self.V)) / 2.0
+    
     def log_prior(self):
-        return self.log_prior_hyper()
+        return self.log_prior_hyper() + self.log_prior_V()
 
-    def log_likelihood(self, X, Y):
-        f_mean, f_var = self.conditional(X)
-        log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
+    def log_likelihood(self, X, Y, jitter_level=1e-6):
+        K = self.kern.K(X, X) + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
+        L = torch.linalg.cholesky(K, upper=False)
+        F = torch.mm(L, self.V) 
+
+        log_likelihood = torch.sum(self.likelihood.logp(F, Y))
 
         return log_likelihood
 
@@ -247,7 +249,7 @@ class BGP(nn.Module):
     @property
     def sampling_params(self):
         return [dict(self.named_parameters())[key] for key in self.sampling_params_names]
-        # return list(self.parameters())[:-1]  # kernel.variance, kernel.lengthscales
+        # return list(self.parameters())[:-1]  # V, kernel.variance, kernel.lengthscales
 
     @property
     def optim_params(self):

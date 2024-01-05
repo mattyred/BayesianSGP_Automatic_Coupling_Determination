@@ -98,7 +98,7 @@ def main():
             model.set_samples(samples_dir, cache=True)
 
         if iter % 100 == 0:
-            print('TRAIN\t| iter = %6d       sample marginal LL = %5.2f' % (iter, -log_prob.detach()))
+            print('TRAIN\t| iter = %6d       sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
         iter += 1
 
     # MNLL performance

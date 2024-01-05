@@ -111,6 +111,33 @@ def conditional(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
 
     return fmean, fvar
     
+def bgp_conditional(Xnew, X, kern, Y, full_cov=False, jitter_level=1e-6):
+    """
+        Xnew is a data matrix, point at which we want to predict
+
+        This method computes
+            p(F* | Y )
+
+        where F* are points on the GP at Xnew, Y are noisy observations at X.
+    """
+    Kx = kern.K(X, Xnew)
+    K = kern.K(X, X) + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
+    L = torch.linalg.cholesky(K, upper=False)
+    
+    V = torch.linalg.solve(L, Y) 
+    A = torch.linalg.solve(L, Kx)
+    fmean = torch.mm(A.t(), V) 
+
+    # compute the covariance due to the conditioning
+    if full_cov:
+        fvar = kern.K(Xnew) - torch.mm(A.t(), A)
+        fvar = fvar.unsqueeze(2).expand(fvar.size(0), fvar.size(1), Y.size(1))
+    else:
+        fvar = kern.Kdiag(Xnew) - (A**2).sum(0)
+        fvar = fvar.view(-1, 1)
+        fvar = fvar.expand(fvar.size(0), Y.size(1))
+
+    return fmean, fvar
 
 def conditional2(Xnew, X, kern, f, full_cov=False, q_sqrt=None, whiten=False,
                 jitter_level=1e-6, return_Lm=False, return_trace=False):
