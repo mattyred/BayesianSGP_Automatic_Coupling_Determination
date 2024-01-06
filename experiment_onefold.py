@@ -1,4 +1,7 @@
 import torch
+import wandb
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter()
 import numpy as np
 import argparse
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
@@ -47,6 +50,7 @@ def save_samples(folder_path, model, **kwargs):
 
 
 def main():
+
     dataset_name = 'boston'
     task = DATASET_TASK[dataset_name]
     standardize = task == 'regression'
@@ -97,6 +101,12 @@ def main():
             sample_idx += 1
             model.set_samples(samples_dir, cache=True)
 
+        #if iter % 10 == 0:
+        #    print(f'kern.variance: {model.kern.variance.get()}')
+        writer.add_scalar("Loss/train", -log_prob, iter)
+        writer.add_scalar("kernel.variance", model.kern.variance.get(), iter)
+        writer.add_scalar("likelihood.variance", model.likelihood.variance.get(), iter)
+        writer.add_scalar("log_prob", model.likelihood.variance.get(), iter)
         if iter % 100 == 0:
             print('TRAIN\t| iter = %6d       sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
         iter += 1
@@ -121,6 +131,9 @@ def main():
 
     # Save posterior samples
     save_samples(kernel_dir, model, test_mnll=test_mnll, test_error_rate=test_error_rate, test_nrmse=test_nrmse)
+
+    writer.flush()
+    writer.close()
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser(description='BSGPtorch - onefold')
