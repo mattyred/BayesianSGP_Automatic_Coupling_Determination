@@ -75,7 +75,7 @@ class BGP(nn.Module):
     """
     
     def predict(self, X):
-        f_mean, f_var = conditional(X, self.X, self.kern, self.V, full_cov=self.full_cov, whiten=True, return_Lm=False)
+        f_mean, f_var = conditional(X, self.X, self.kern, self.Y, full_cov=self.full_cov, whiten=True, return_Lm=False)
         #bgp_conditional(X, self.X, self.kern, self.V, full_cov=self.full_cov)
         y_mean, y_var = self.likelihood.predict_mean_and_var(f_mean, f_var)
         
@@ -134,6 +134,7 @@ class BGP(nn.Module):
     def log_prior(self):
         return self.log_prior_hyper() + self.log_prior_V()
 
+    """
     def log_likelihood(self, X, Y, jitter_level=1e-6):
         K = self.kern.K(X, X) + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
         L = torch.linalg.cholesky(K, upper=False)
@@ -142,7 +143,14 @@ class BGP(nn.Module):
         log_likelihood = torch.sum(self.likelihood.logp(F, Y))
 
         return log_likelihood
+    """
 
+    def log_likelihood(self, X, Y):
+        f_mean, f_var = conditional(X, self.X, self.kern, self.Y, full_cov=self.full_cov, whiten=True, return_Lm=False)
+        log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
+
+        return log_likelihood
+    
     def log_prob(self, X, Y):
         log_likelihood = self.log_likelihood(X, Y)
         log_prior = self.log_prior()

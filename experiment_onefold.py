@@ -3,6 +3,7 @@ import wandb
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 import numpy as np
+import seaborn as sns
 import argparse
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
 from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
@@ -107,6 +108,7 @@ def main():
         writer.add_scalar("kernel.variance", model.kern.variance.get(), iter)
         writer.add_scalar("likelihood.variance", model.likelihood.variance.get(), iter)
         writer.add_scalar("log_prob", model.likelihood.variance.get(), iter)
+
         if iter % 100 == 0:
             print('TRAIN\t| iter = %6d       sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
         iter += 1
@@ -142,7 +144,7 @@ if __name__ =='__main__':
     parser.add_argument('--adam_lr', type=float, default=0.01)
     parser.add_argument('--prior_inducing_type', type=str, choices=["normal", "uniform", "strauss"], default="normal")
     parser.add_argument('--full_cov', type=bool, default=False)
-    parser.add_argument('--epsilon', type=float, default=0.01)
+    parser.add_argument('--epsilon', type=float, default=0.01) 
     parser.add_argument('--clip_by_value', action='store_true')
     parser.add_argument('--mdecay', type=float, default=0.05)
     parser.add_argument('--num_posterior_samples', type=int, default=100)

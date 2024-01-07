@@ -103,7 +103,7 @@ class RBF(Kern):
                 self.rbf_type = 'standard'
     
     def square_dist(self, X, X2):
-        X = X / (self.lengthscales.get() + jitter)
+        X = X / self.lengthscales.get()
         Xs = (X**2).sum(1)
 
         if X2 is None:

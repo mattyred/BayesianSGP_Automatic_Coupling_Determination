@@ -125,7 +125,7 @@ class Gaussian(Likelihood):
         self.variance = parameter.PositiveParam(torch.tensor([variance], dtype=dtype), dtype=dtype)
 
     def logp(self, F, Y):
-        return densities.gaussian(F, Y, self.variance.get()) # SWAPPED
+        return densities.gaussian(F, Y, self.variance.get())
 
     def conditional_mean(self, F):
         return F

@@ -38,7 +38,7 @@ def logwishart(L, P):
 
 def loginvwishart(L, P):
     n = P.size(0)
-    diag = torch.clamp(torch.diagonal(torch.abs(L)), min=1e-8)
+    diag = torch.diagonal(torch.clamp(torch.abs(L), min=1e-8))
     return -(2*n + 1)  * torch.sum(torch.log(diag)) - torch.trace(torch.inverse(P)) / 2.0
 
 def loghorseshoe(x, scale):
