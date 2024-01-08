@@ -25,6 +25,26 @@ def bernoulli(p, y):
 def gaussian(x, mu, var):
     return -0.5 * (float(np.log(2 * np.pi)) + torch.log(var) + (mu-x)**2/var)
 
+def multivariate_normal(x, mu, L):
+    """
+    L is the Cholesky decomposition of the covariance.
+    x and mu are either vectors (ndim=1) or matrices. In the matrix case, we
+    assume independence over the *columns*: the number of rows must match the
+    size of L.
+    """
+    d = x - mu
+    if d.dim() == 1:
+        d = d.unsqueeze(1)
+    alpha = torch.linalg.solve_triangular(L, d, upper=False)
+    alpha = alpha.squeeze(1)
+    num_col = 1 if x.dim() == 1 else x.size(1)
+    num_dims = x.size(0)
+    ret = - 0.5 * num_dims * num_col * float(np.log(2 * np.pi))
+    ret += - num_col * torch.diag(L).log().sum()
+    ret += - 0.5 * (alpha**2).sum()
+    # ret = - 0.5 * (alpha**2).mean()
+    return ret
+
 def lognormal(x, mu, var):
     return -torch.sum(torch.square((x-mu)/var)) / 2.
 

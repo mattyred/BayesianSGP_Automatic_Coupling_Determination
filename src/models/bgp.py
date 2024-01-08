@@ -32,7 +32,7 @@ class BGP(nn.Module):
         self.prior_lik_var = prior_lik_var
         self.X, self.Y = X, Y
         # sampling  parameters
-        self.sampling_params_names = ['V', 'kern.variance']
+        self.sampling_params_names = ['kern.variance']
         if self.kern.rbf_type == 'ARD':
             self.sampling_params_names.append('kern.lengthscales')
         elif self.kern.rbf_type == 'ACD':
@@ -47,38 +47,27 @@ class BGP(nn.Module):
         else:
             self.N = n_data
 
-        self.V = nn.parameter.Parameter(
-            torch.zeros((n_data, self.outputs), dtype=torch.float64),
-            requires_grad=True)
-
         self.Lm = None
-
-    """
-    def conditional(self, Xnew):
-        Kx = self.kern.K(self.X, Xnew)
+    
+    def predict(self, X):
+        Kx = self.kern.K(self.X, X)
         K = self.kern.K(self.X) + torch.eye(self.X.size(0), dtype=self.X.dtype, device=self.X.device) * self.likelihood.variance.get()
         L = torch.linalg.cholesky(K, upper=False)
 
-        A = torch.linalg.solve(L, Kx)  
-        V = torch.linalg.solve(L, self.Y - self.mean_function(self.X))
+        A = torch.linalg.solve(L, Kx)  # could use triangular solve, note gesv has B first, then A in AX=B
+        V  = torch.linalg.solve(L, self.Y) # could use triangular solve
 
-        fmean = torch.mm(A.t(), V) + self.mean_function(Xnew)
+        fmean = torch.mm(A.t(), V)
         if self.full_cov:
-            fvar = self.kern.K(Xnew) - torch.mm(A.t(), A)
+            fvar = self.kern.K(X) - torch.mm(A.t(), A)
             fvar = fvar.unsqueeze(2).expand(fvar.size(0), fvar.size(1), self.Y.size(1))
         else:
-            fvar = self.kern.Kdiag(Xnew) - (A**2).sum(0)
+            fvar = self.kern.Kdiag(X) - (A**2).sum(0)
             fvar = fvar.view(-1, 1)
             fvar = fvar.expand(fvar.size(0), self.Y.size(1))
 
-        return fmean, fvar
-    """
-    
-    def predict(self, X):
-        f_mean, f_var = conditional(X, self.X, self.kern, self.Y, full_cov=self.full_cov, whiten=True, return_Lm=False)
-        #bgp_conditional(X, self.X, self.kern, self.V, full_cov=self.full_cov)
-        y_mean, y_var = self.likelihood.predict_mean_and_var(f_mean, f_var)
-        
+        y_mean, y_var = self.likelihood.predict_mean_and_var(fmean, fvar)
+
         return y_mean, y_var
 
     def log_prior_hyper(self):
@@ -127,30 +116,34 @@ class BGP(nn.Module):
         log_prob += -torch.sum(torch.square(log_variance - np.log(0.05))) / 2.
 
         return log_prob
-
-    def log_prior_V(self):
-        return -torch.sum(torch.square(self.V)) / 2.0
     
     def log_prior(self):
-        return self.log_prior_hyper() + self.log_prior_V()
+        return self.log_prior_hyper()
 
-    """
-    def log_likelihood(self, X, Y, jitter_level=1e-6):
-        K = self.kern.K(X, X) + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
-        L = torch.linalg.cholesky(K, upper=False)
-        F = torch.mm(L, self.V) 
-
-        log_likelihood = torch.sum(self.likelihood.logp(F, Y))
-
-        return log_likelihood
-    """
-
-    def log_likelihood(self, X, Y):
-        f_mean, f_var = conditional(X, self.X, self.kern, self.Y, full_cov=self.full_cov, whiten=True, return_Lm=False)
-        log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
-
-        return log_likelihood
     
+    def log_likelihood(self, X, Y, jitter_level=1e-6):
+        K = self.kern.K(X, X)
+
+        if self.likelihood.variance.get() != 0.:
+            K = K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * self.likelihood.variance.get()
+        else:
+            K = K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
+        
+            
+        multiplier = 1
+        while True:
+            try:
+                L = torch.linalg.cholesky(K + multiplier*jitter_level, upper=False)
+                break
+            except RuntimeError as err:
+                multiplier *= 2.
+                if float(multiplier) == float("inf"):
+                    raise RuntimeError("increase to inf jitter")
+
+        log_likelihood = multivariate_normal(Y, torch.zeros_like(Y, device=Y.device), L)
+
+        return log_likelihood
+
     def log_prob(self, X, Y):
         log_likelihood = self.log_likelihood(X, Y)
         log_prior = self.log_prior()

@@ -1,5 +1,4 @@
 import torch
-import wandb
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 import numpy as np
@@ -55,6 +54,8 @@ def main():
     dataset_name = 'boston'
     task = DATASET_TASK[dataset_name]
     standardize = task == 'regression'
+    if task == 'classification':
+        assert args.model == 'BSGP' 
     data_uci = UCIDataset(dataset_path=f'data/uci/{dataset_name}.pth', k=-1, standardize=standardize, seed=0)
 
     N, D = data_uci.X_train.shape
