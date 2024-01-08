@@ -76,10 +76,12 @@ class RBF(Kern):
         if ACD:
             low_tri_shape  = (self.input_dim*(self.input_dim+1)//2,) 
             if init_val is None:
-                P = torch.eye(input_dim, dtype=torch.float64)
-                L = torch.linalg.cholesky(P, upper=False)
-                l = L[torch.tril(torch.ones_like(L, dtype=torch.float64)).bool()]
-                # l = torch.ones(low_tri_shape, dtype=torch.float64)
+                # P = torch.eye(input_dim, dtype=torch.float64)
+                # L = torch.linalg.cholesky(P, upper=False)
+                # l = L[torch.tril(torch.ones_like(L, dtype=torch.float64)).bool()]
+                mean = torch.zeros(low_tri_shape, dtype=torch.float64)
+                std = torch.ones(low_tri_shape, dtype=torch.float64) * 0.1
+                l = torch.normal(mean=mean, std=std)
             else:
                 l = init_val * torch.ones(low_tri_shape, dtype=torch.float64)
             self.L = parameter.Param(val=l)

@@ -53,13 +53,13 @@ def main():
 
     dataset_name = 'boston'
     task = DATASET_TASK[dataset_name]
-    standardize = task == 'regression'
+    normalize = task == 'regression'
     if task == 'classification':
         assert args.model == 'BSGP' 
-    data_uci = UCIDataset(dataset_path=f'data/uci/{dataset_name}.pth', k=-1, standardize=standardize, seed=0)
+    data_uci = UCIDataset(dataset=dataset_name, k=-1, normalize=normalize, seed=0)
 
     N, D = data_uci.X_train.shape
-    Ystd = data_uci.Y_train_std.numpy()
+    Ystd = data_uci.Y_train_std
     print(f'X-train: {N, D}')
 
     # ACD prior args

@@ -1,17 +1,14 @@
 import torch
 import numpy as np
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
-import seaborn as sns
 from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 import torch.optim as optim
 from src.misc.utils import ensure_dir, next_path
 import os
-from scipy.stats import norm
 import argparse
 
-from src.misc.settings import settings
-device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
@@ -42,17 +39,17 @@ def save_samples(folder_path, model, **kwargs):
                 'test_mnll':  kwargs['test_mnll'],
                 'test_error_rate': kwargs['test_error_rate'],
                 'test_nrmse': kwargs['test_nrmse']}
-    filepath = os.path.join(folder_path, 'kernel_samples')
+    filepath = os.path.join(folder_path, f'kernel_samples_fold_{kwargs["k"]}')
     np.savez(filepath, **npz_dict)
     return 0
 
 def main():
     dataset_name = 'boston'
     task = DATASET_TASK[dataset_name]
-    standardize = task == 'regression'
+    normalize = task == 'regression'
     if task == 'classification':
         assert args.model == 'BSGP' 
-    data_uci = UCIDataset(dataset_path=f'data/uci/{dataset_name}.pth', k=args.kfold, standardize=standardize, seed=0)
+    data_uci = UCIDataset(dataset=dataset_name, k=args.kfold, normalize=normalize, seed=0)
 
     # ACD prior args
     prior_kernel = None
@@ -133,7 +130,7 @@ def main():
             print('TEST NRMSE =\t %5.2f' % test_nrmse)
 
         # Save posterior samples
-        save_samples(kernel_dir, model, test_mnll=test_mnll, test_error_rate=test_error_rate, test_nrmse=test_nrmse)
+        save_samples(kernel_dir, model, k=k, test_mnll=test_mnll, test_error_rate=test_error_rate, test_nrmse=test_nrmse)
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser(description='BSGPtorch - onefold')

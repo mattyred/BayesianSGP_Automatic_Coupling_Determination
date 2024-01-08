@@ -165,7 +165,6 @@ class BSGP(nn.Module):
                 log_prob += loghorseshoe(offdiag_precision, scale)
                 log_prob += lognormal(diag_precision, mu=0., var=1.)
             
-            
             log_prob += logdet_jacobian(self.kern)
 
         # prior on kernel log-lengthscales

@@ -62,14 +62,8 @@ def loginvwishart(L, P):
     return -(2*n + 1)  * torch.sum(torch.log(diag)) - torch.trace(torch.inverse(P)) / 2.0
 
 def loghorseshoe(x, scale):
-    """
-    P += torch.ones_like(P) * jitter # try to avoid cholesky crush
-    K = 1 / torch.sqrt(2 * torch.tensor(np.pi)**3)
-    A = (scale / P) ** 2
-    lb = K / 2 * torch.log(1 + 4 * A)
-    ub = K * torch.log(1 + 2 * A)
-    return torch.sum(torch.log((lb + ub) / 2.))
-    """
+    # Credits to TensorFlow
+    x += 1e-19
     xx = (x / scale)**2 / 2
     g = 0.5614594835668851
     b = 1.0420764938351215
