@@ -44,7 +44,7 @@ def save_samples(folder_path, model, **kwargs):
     return 0
 
 def main():
-    dataset_name = 'boston'
+    dataset_name = 'powerplant'
     task = DATASET_TASK[dataset_name]
     normalize = task == 'regression'
     if task == 'classification':

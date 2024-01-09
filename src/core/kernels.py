@@ -119,18 +119,17 @@ class RBF(Kern):
         dist += Xs.view(-1, 1) + X2s.view(1, -1)
         return dist
 
-    def malhanobis_dist(self, X, X2):
+    def malhanobis_dist_old(self, X, X2):
         if X2 is None:
             X2 = X
         N = X.size(0)
         M = X2.size(0)
         precision = self.precision
-        """
         # compute z, z2
         z = self._z(X, precision, dim=1) # (N, 1)
         z2 = self._z(X2, precision, dim=1) # (M, 1)
         # compute X(X2Λ)ᵀ
-        X2Lambda = torch.matmul(X2, precision) # (M, input_dium)
+        X2Lambda = torch.matmul(X2, precision) # (M, input_dim)
         XX2LambdaT = torch.matmul(X, X2Lambda.t()) # (N, M)
         # compute z1ᵀ 
         ones_M = torch.ones(M, 1, device=precision.device, dtype=torch.float64) # (M, 1)
@@ -138,21 +137,27 @@ class RBF(Kern):
         # compute 1z2ᵀ 
         ones_N = torch.ones(N, 1, device=precision.device, dtype=torch.float64) # (N, 1)
         zrow = torch.matmul(ones_N, z2.t()) # (N, M)
-        """
-        XP = torch.matmul(torch.unsqueeze(X, 1), precision)
-        X2P = torch.matmul(torch.unsqueeze(X2, 1), precision)
-        X11 = torch.squeeze(torch.matmul(XP, torch.unsqueeze(X, -1)), -1)
-        X22 = torch.squeeze(torch.matmul(X2P, torch.unsqueeze(X2, -1)), -1).t()
-
-        X12 = torch.matmul(torch.matmul(X, precision), X2.t())
-        # dist = zcol - 2*XX2LambdaT + zrow # (N, M)
-        dist = X11 - 2*X12 + X22
+        dist = zcol - 2*XX2LambdaT + zrow # (N, M)
         return dist
     
     def _z(self, X, Lambda, dim=2):
         XLambda = torch.matmul(X, Lambda) # (N/M, input_dim)
         XLambdaX = torch.mul(XLambda, X) # (M, input_dim)
         return torch.sum(XLambdaX, dim=dim, keepdim=True) # (N/M, 1)
+    
+    def malhanobis_dist(self, X, X2):
+        if X2 is None:
+            X2 = X
+        precision = self.precision
+        XP = torch.matmul(torch.unsqueeze(X, 1), precision)
+        X2P = torch.matmul(torch.unsqueeze(X2, 1), precision)
+        X11 = torch.squeeze(torch.matmul(XP, torch.unsqueeze(X, -1)), -1)
+        X22 = torch.squeeze(torch.matmul(X2P, torch.unsqueeze(X2, -1)), -1).t()
+        X12 = torch.matmul(torch.matmul(X, precision), X2.t())
+
+        dist = X11 - 2*X12 + X22
+
+        return dist
     
     def _fill_triangular(self):
         lower_indices = torch.tril_indices(self.input_dim, self.input_dim) # (2, lsize)

@@ -9,7 +9,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
 DATASET_TASK = {'boston': 'regression',
-                'breast': 'classification'}
+                'breast': 'classification',
+                'powerplant': 'regression'}
 
 class UCIDataset():
 
