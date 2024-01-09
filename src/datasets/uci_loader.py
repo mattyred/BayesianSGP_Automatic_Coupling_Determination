@@ -10,6 +10,8 @@ logger = logging.getLogger()
 
 DATASET_TASK = {'boston': 'regression',
                 'breast': 'classification',
+                'powerplant': 'regression',
+                'kin8nm': 'regression',
                 'powerplant': 'regression'}
 
 class UCIDataset():

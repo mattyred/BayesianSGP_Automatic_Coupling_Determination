@@ -44,7 +44,8 @@ def save_samples(folder_path, model, **kwargs):
     return 0
 
 def main():
-    dataset_name = 'powerplant'
+    dataset_name = args.dataset
+    assert dataset_name in DATASET_TASK.keys()
     task = DATASET_TASK[dataset_name]
     normalize = task == 'regression'
     if task == 'classification':
@@ -134,6 +135,7 @@ def main():
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser(description='BSGPtorch - onefold')
+    parser.add_argument('--dataset', type=str, default='boston')
     parser.add_argument('--num_inducing', type=int, default=100)
     parser.add_argument('--minibatch_size', type=int, default=1000)
     parser.add_argument('--adam_lr', type=float, default=0.01)

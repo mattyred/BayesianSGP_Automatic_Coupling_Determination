@@ -288,6 +288,7 @@ class BSGP(nn.Module):
             ' BSGP',
             ' Input dim = %d' % self.X.size(0),
             ' Output dim = %d' % self.X.size(1),
+            ' Inducing points = %d' % self.M,
             ' Kernel type = %s' % self.kern.rbf_type,
             ' Prior ACD = %s' % self.prior_kernel
             ]
