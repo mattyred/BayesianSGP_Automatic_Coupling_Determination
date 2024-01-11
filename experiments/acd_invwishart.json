@@ -1,0 +1,4 @@
+{
+    "kernel_type": "ACD",
+    "prior_kernel_type": "invwishart"
+}

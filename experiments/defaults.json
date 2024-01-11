@@ -1,0 +1,19 @@
+{
+    "num_inducing": 100,
+    "prior_inducing_type": "normal",
+    "minibatch_size": 1000,
+    "adam_lr": 0.01,
+    "full_cov": false,
+    "epsilon": 0.01,
+    "clip_by_value": false,
+    "mdecay": 0.05,
+    "num_posterior_samples": 100,
+    "n_burnin_iters": 1500,
+    "collect_every": 50,
+    "K": 10,
+    "kfold": 5,
+    "b": 0.01,
+    "global_shrinkage": 0.01,
+    "m": 0,
+    "v": 0.1
+}

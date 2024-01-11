@@ -11,7 +11,7 @@ from scipy.special import logsumexp
 from .core.likelihoods import Gaussian, Bernoulli
 
 
-def build_model(X, Y, args, model='BSGP', task='regression', prior_kernel=None):
+def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None):
     assert model == 'BSGP' or model == 'BGP'
     assert task == 'regression' or 'classification' 
 
@@ -24,26 +24,26 @@ def build_model(X, Y, args, model='BSGP', task='regression', prior_kernel=None):
         lik = Bernoulli()
 
     # define kernel
-    if args.kernel_type == 'ACD':
+    if params['kernel_type'] == 'ACD':
         kern = RBF(input_dim=D_in, ACD=True)
-    elif args.kernel_type == 'ARD':
+    elif params['kernel_type'] == 'ARD':
         kern = RBF(input_dim=D_in, ARD=True)
 
     # define model
-    mb_size = args.minibatch_size if N > args.minibatch_size else N
+    mb_size = params['minibatch_size'] if N > params['minibatch_size'] else N
     if model == 'BSGP':
         model = BSGP(X=X, Y=Y,
                     kernel=kern,
                     likelihood=lik,
-                    prior_type=args.prior_inducing_type,
+                    prior_type=params['prior_inducing_type'],
                     prior_kernel=prior_kernel,
                     inputs=D_in,
                     outputs=D_out,
                     minibatch_size=mb_size,
                     n_data=N,
-                    n_inducing=args.num_inducing,
+                    n_inducing=params['num_inducing'],
                     inducing_points_init=None,
-                    full_cov=args.full_cov)
+                    full_cov=params['full_cov'])
     elif model == 'BGP':
         model = BGP(X=X, Y=Y,
                 kernel=kern,
@@ -53,7 +53,7 @@ def build_model(X, Y, args, model='BSGP', task='regression', prior_kernel=None):
                 minibatch_size=mb_size,
                 prior_kernel=prior_kernel,
                 n_data=N,
-                full_cov=args.full_cov)
+                full_cov=params['full_cov'])
 
     return  model
 

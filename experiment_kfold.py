@@ -6,6 +6,7 @@ from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 import torch.optim as optim
 from src.misc.utils import ensure_dir, next_path
 import os
+import json
 import argparse
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -43,19 +44,35 @@ def save_samples(folder_path, model, **kwargs):
     np.savez(filepath, **npz_dict)
     return 0
 
-def main():
+def main(args):
+    # Read experiment parameters
+    params_folder = './experiments'
+    with open(os.path.join(params_folder,'defaults.json'), 'r') as file:
+      default_params = json.load(file)
+    with open(os.path.join(params_folder, args.experiment), 'r') as file:
+      exp_params = json.load(file)
+    default_params.update(exp_params)
+    params = default_params
+    params['model'] = args.model
+    params['dataset'] = args.dataset
     dataset_name = args.dataset
+
+    # Load data
     assert dataset_name in DATASET_TASK.keys()
     task = DATASET_TASK[dataset_name]
     normalize = task == 'regression'
     if task == 'classification':
         assert args.model == 'BSGP' 
-    data_uci = UCIDataset(dataset=dataset_name, k=args.kfold, normalize=normalize, seed=0)
+    data_uci = UCIDataset(dataset=dataset_name, k=params['kfold'], normalize=normalize, seed=0)
 
     # ACD prior args
     prior_kernel = None
-    if args.kernel_type == 'ACD':
-        prior_kernel =  {'type': args.prior_kernel_type, 'b': args.b, 'global_shrinkage': args.global_shrinkage}
+    if params['kernel_type'] == 'ACD':
+        prior_kernel =  {'type': params['prior_kernel_type'], 
+                         'm': params['m'],
+                         'v': params['v'],
+                         'b': params['b'], 
+                         'global_shrinkage': params['global_shrinkage']}
 
     # Results directory
     run_path = next_path(os.path.dirname(os.path.realpath(__file__)) + '/results/' + '/run-%04d/')
@@ -65,14 +82,14 @@ def main():
     ensure_dir(kernel_dir)
     print(f'Results folder: {run_path}')
 
-    n_sampling_iters = args.n_burnin_iters + args.num_posterior_samples * args.collect_every
-    clip_value = 1 / (args.epsilon * 10) if args.clip_by_value else None # s.t. clip_value <= 1 / epsilon
-    print(f'GP Model: {args.model}')
-    print(f'Number of iterations: {n_sampling_iters}')
-    print(f'Gradient clipping: {args.clip_by_value}')
+    n_sampling_iters = params['n_burnin_iters'] + params['num_posterior_samples'] * params['collect_every']
+    clip_value = 1 / (params['epsilon'] * 10) if params['clip_by_value'] else None # s.t. clip_value <= 1 / epsilon
+    print(f"GP Model: {params['model']}")
+    print(f"Number of iterations: {n_sampling_iters}")
+    print(f"Gradient clipping: {params['clip_by_value']}")
 
-    for k in range(args.kfold):
-        print(f'\nFOLD {k+1} of {args.kfold}')
+    for k in range(params['kfold']):
+        print(f"\nFOLD {k+1} of {params['kfold']}")
         X_train = data_uci.X_train_kfold[k]
         X_test = data_uci.X_test_kfold[k]
         Y_train = data_uci.Y_train_kfold[k]
@@ -86,24 +103,24 @@ def main():
         ensure_dir(fold_samples_dir)
 
         # Model initialization
-        model = build_model(X_train.to(device), Y_train.to(device), args, model=args.model, prior_kernel=prior_kernel, task=task)
+        model = build_model(X_train.to(device), Y_train.to(device), params, model=params['model'], prior_kernel=prior_kernel, task=task)
         print(model)
         model = model.to(device)
         bsgp_sampler = AdaptiveSGHMC(model.sampling_params,
-                                    lr=args.epsilon, num_burn_in_steps=2000,
-                                    mdecay=args.mdecay, scale_grad=N)
+                                    lr=params['epsilon'], num_burn_in_steps=2000,
+                                    mdecay=params['mdecay'], scale_grad=N)
         if len(model.optimization_params_names) > 0:
-            bsgp_optimizer = optim.Adam(model.optim_params, lr=args.adam_lr)
+            bsgp_optimizer = optim.Adam(model.optim_params, lr=params['adam_lr'])
 
         iter = 0
         sample_idx = 0
         for iter in range(n_sampling_iters):
 
-            log_prob = model.train_step(device, bsgp_sampler, K=args.K, clip_value=clip_value)
+            log_prob = model.train_step(device, bsgp_sampler, K=params['K'], clip_value=clip_value)
             if len(model.optimization_params_names) > 0:
                 log_prob = model.optimizer_step(device, bsgp_optimizer, clip_value=clip_value)
 
-            if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
+            if (iter > params['n_burnin_iters']) and (iter % params['collect_every'] == 0):
                 model.save_sample(fold_samples_dir, sample_idx)
                 sample_idx += 1
                 model.set_samples(fold_samples_dir, cache=True)
@@ -134,25 +151,9 @@ def main():
         save_samples(kernel_dir, model, k=k, test_mnll=test_mnll, test_error_rate=test_error_rate, test_nrmse=test_nrmse)
 
 if __name__ =='__main__':
-    parser = argparse.ArgumentParser(description='BSGPtorch - onefold')
-    parser.add_argument('--dataset', type=str, default='boston')
-    parser.add_argument('--num_inducing', type=int, default=100)
-    parser.add_argument('--minibatch_size', type=int, default=1000)
-    parser.add_argument('--adam_lr', type=float, default=0.01)
-    parser.add_argument('--prior_inducing_type', type=str, choices=["normal", "uniform", "strauss"], default="normal")
-    parser.add_argument('--full_cov', type=bool, default=False)
-    parser.add_argument('--epsilon', type=float, default=0.01) 
-    parser.add_argument('--clip_by_value', action='store_true')
-    parser.add_argument('--mdecay', type=float, default=0.05)
-    parser.add_argument('--num_posterior_samples', type=int, default=100)
-    parser.add_argument('--n_burnin_iters', type=int, default=1500)
-    parser.add_argument('--collect_every', type=int, default=50)
-    parser.add_argument('--K', type=int, default=10)
+    parser = argparse.ArgumentParser(description='experiment-wandb')
+    parser.add_argument('--experiment', type=str, default="ard.json")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
-    parser.add_argument('--kernel_type', type=str, choices=["ARD", "ACD"], default="ACD")
-    parser.add_argument('--prior_kernel_type', type=str, choices=["wishart", "invwishart", "laplace", "horseshoe", "normal"], default="wishart")
-    parser.add_argument('--b', type=float, default=0.1)
-    parser.add_argument('--global_shrinkage', type=float, default=0.1)
-    parser.add_argument('--kfold', type=int, default=3)
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant"], default="boston")
     args = parser.parse_args()
-    main()
+    main(args)

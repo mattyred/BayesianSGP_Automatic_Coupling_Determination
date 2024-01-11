@@ -284,13 +284,27 @@ class BSGP(nn.Module):
         return gp_params
     
     def __str__(self):
+        prior_kernel_type = self.prior_kernel['type']
+        b = self.prior_kernel['b']
+        m = self.prior_kernel['m']
+        v = self.prior_kernel['v']
+        global_shrinkage = self.prior_kernel['global_shrinkage']
+        if prior_kernel_type == 'laplace':
+            prior_ACD = prior_kernel_type + f' (b = {b})'
+        elif prior_kernel_type == 'horseshoe':
+            prior_ACD = prior_kernel_type + f' (global shrinkage = {global_shrinkage})'
+        elif prior_kernel_type == 'normal':
+            prior_ACD = prior_kernel_type + f' (m = {m}, v = {v})'
+        else:
+            prior_ACD = prior_kernel_type
+
         str = [
             ' BSGP',
             ' Input dim = %d' % self.X.size(0),
             ' Output dim = %d' % self.X.size(1),
             ' Inducing points = %d' % self.M,
             ' Kernel type = %s' % self.kern.rbf_type,
-            ' Prior ACD = %s' % self.prior_kernel
+            ' Prior ACD = %s' % prior_ACD
             ]
         return 'Model:' + '\n'.join(str)
     
