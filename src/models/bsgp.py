@@ -284,8 +284,9 @@ class BSGP(nn.Module):
         return gp_params
     
     def __str__(self):
-        prior_kernel_type = self.prior_kernel['type']
-        if prior_kernel_type == 'ACD':
+        kernel = self.prior_kernel['kernel']
+        if kernel == 'ACD':
+            prior_kernel_type = self.prior_kernel['type']
             b = self.prior_kernel['b']
             m = self.prior_kernel['m']
             v = self.prior_kernel['v']
@@ -298,7 +299,6 @@ class BSGP(nn.Module):
                 prior_ACD = prior_kernel_type + f' (m = {m}, v = {v})'
             else:
                 prior_ACD = prior_kernel_type
-            prior_ACD = ' Prior ACD = %s' % prior_ACD
         else:
             prior_ACD = ""
 
@@ -308,10 +308,9 @@ class BSGP(nn.Module):
             ' Output dim = %d' % self.X.size(1),
             ' Inducing points = %d' % self.M,
             ' Kernel type = %s' % self.kern.rbf_type,
-            ' Prior ACD = %s' % prior_ACD
+            ' Prior ACD = %s' % prior_ACD if kernel == 'ACD' else ''
             ]
         return 'Model:' + '\n'.join(str)
-    
     @property
     def sampling_params(self):
         return [dict(self.named_parameters())[key] for key in self.sampling_params_names]

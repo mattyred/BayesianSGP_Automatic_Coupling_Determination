@@ -46,6 +46,8 @@ def save_samples(folder_path, model, artifact, run, **kwargs):
     np.savez(filepath, **npz_dict)
     # Upload to wandb
     artifact.add_file(filepath + '.npz')
+    # Log on wandb
+    run.log({"test_mnll": kwargs['test_mnll'], "test_nrmse": kwargs['test_nrmse']})
 
 def main(args):
     # Read experiment parameters
@@ -72,7 +74,7 @@ def main(args):
         "dataset": params['dataset'],
         "kernel": params['kernel_type']
       })
-    run_artifact = wandb.Artifact(f"exp_{params['dataset']}_{params['model']}_{experiment_index}_params", type='model')
+    run_artifact = wandb.Artifact(f"exp_{params['dataset']}_{params['model']}_{experiment_index}_params", type=params['model'])
 
     dataset_name = params['dataset']
     assert dataset_name in DATASET_TASK.keys()
@@ -85,9 +87,15 @@ def main(args):
     # ACD prior args
     prior_kernel = None
     if params['kernel_type'] == 'ACD':
-        prior_kernel =  {'type': params['prior_kernel_type'], 'b': params['b'], 'global_shrinkage': params['global_shrinkage']}
+        prior_kernel =  {
+        'kernel': 'ACD',
+        'type': params['prior_kernel_type'], 
+        'b': params['b'], 
+        'global_shrinkage': params['global_shrinkage'],
+        'm': params['m'],
+        'v': params['v']}
     else:
-        prior_kernel =  {'type': 'ARD'}
+        prior_kernel =  {'kernel': 'ARD'}
 
     # Results directory
     run_path = next_path(os.path.dirname('/results/' + '/run-%04d/'))

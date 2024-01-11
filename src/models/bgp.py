@@ -238,8 +238,9 @@ class BGP(nn.Module):
         return gp_params
     
     def __str__(self):
-        prior_kernel_type = self.prior_kernel['type']
-        if prior_kernel_type == 'ACD':
+        kernel = self.prior_kernel['kernel']
+        if kernel == 'ACD':
+            prior_kernel_type = self.prior_kernel['type']
             b = self.prior_kernel['b']
             m = self.prior_kernel['m']
             v = self.prior_kernel['v']
@@ -252,7 +253,6 @@ class BGP(nn.Module):
                 prior_ACD = prior_kernel_type + f' (m = {m}, v = {v})'
             else:
                 prior_ACD = prior_kernel_type
-            prior_ACD = ' Prior ACD = %s' % prior_ACD
         else:
             prior_ACD = ""
 
@@ -261,7 +261,7 @@ class BGP(nn.Module):
             ' Input dim = %d' % self.X.size(0),
             ' Output dim = %d' % self.X.size(1),
             ' Kernel type = %s' % self.kern.rbf_type,
-            ' Prior ACD = %s' % prior_ACD
+            ' Prior ACD = %s' % prior_ACD if kernel == 'ACD' else ''
             ]
         return 'Model:' + '\n'.join(str)
     
