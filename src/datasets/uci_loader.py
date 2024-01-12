@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import  TensorDataset
 from sklearn.model_selection import KFold
+import pandas as pd
 from .normalize import normalize_data, zscore_normalization
 
 logging.basicConfig(level=logging.INFO)
@@ -19,10 +20,11 @@ class UCIDataset():
     def __init__(self, dataset, k=-1, normalize=True, seed=0):
         #dataset_path = ('./data/' + dataset + '.pth')
         logger.info(f'Loading dataset {dataset}')
-        dataset_loader = TensorDataset(*torch.load(f'data/uci/{dataset}.pth'))
+        #dataset_loader = TensorDataset(*torch.load(f'data/uci/{dataset}.csv'))
         task = DATASET_TASK[dataset]
-        X, Y = dataset_loader.tensors
-        X, Y = X.numpy(), Y.numpy()
+        #X, Y = dataset_loader.tensors
+        data = pd.read_csv(f'data/uci/{dataset}.csv')
+        X, Y = data.iloc[:,0:-1].to_numpy(), data.iloc[:,-1].to_numpy().reshape(-1,1)
 
         if k !=-1 :
             assert k > 0
@@ -40,7 +42,12 @@ class UCIDataset():
 
                 # Normalize data
                 if task == 'regression':
-                    X_train, Y_train, X_test, Y_test, Y_train_mean, Y_train_std = normalize_data(X_train, Y_train, X_test, Y_test)
+                    X_train_mean, X_train_std = X_train.mean(), X_test.std() + 1e-9
+                    Y_train_mean, Y_train_std = Y_train.mean(), Y_test.std() + 1e-9
+                    X_train = (X_train - X_train_mean) / X_train_std  
+                    X_test = (X_test - X_train_mean) / X_train_std  
+                    Y_train =  (Y_train - Y_train_mean) / Y_train_std  
+                    Y_test =  (Y_test - Y_train_mean) / Y_train_std
                 elif task == 'classification':
                     X_train, X_train_mean, X_train_std = zscore_normalization(X_train)
                     X_test, _, _ = zscore_normalization(X_test, X_train_mean, X_train_std)

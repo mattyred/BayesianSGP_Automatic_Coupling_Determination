@@ -1,13 +1,13 @@
 import torch
 import numpy as np
-from src.datasets.uci_loader import UCIDataset, DATASET_TASK
-from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
-from src.samplers.adaptative_sghmc import AdaptiveSGHMC
-import torch.optim as optim
-from src.misc.utils import ensure_dir, next_path
 import os
 import json
 import argparse
+import torch.optim as optim
+from src.datasets.uci_loader import UCIDataset, DATASET_TASK
+from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
+from src.samplers.adaptative_sghmc import AdaptiveSGHMC
+from src.misc.utils import ensure_dir, next_path
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -33,16 +33,16 @@ def save_samples(folder_path, model, **kwargs):
         gp_params_dict = model.gp_samples[i]
         kernel_cov_data[i,:] = gp_params_dict[param_name].cpu().detach()
 
-    npz_dict = {param_name: kernel_cov_data, 
-                'D': D_in, 
+    npz_dict = {param_name: kernel_cov_data,
+                'D': D_in,
                 'kernel': model.kern.rbf_type,
                 'prior': kernel_prior,
                 'test_mnll':  kwargs['test_mnll'],
                 'test_error_rate': kwargs['test_error_rate'],
                 'test_nrmse': kwargs['test_nrmse']}
     filepath = os.path.join(folder_path, f'kernel_samples_fold_{kwargs["k"]}')
+    # Save locally
     np.savez(filepath, **npz_dict)
-    return 0
 
 def main(args):
     # Read experiment parameters
@@ -55,29 +55,30 @@ def main(args):
     params = default_params
     params['model'] = args.model
     params['dataset'] = args.dataset
-    dataset_name = args.dataset
 
-    # Load data
+    dataset_name = params['dataset']
     assert dataset_name in DATASET_TASK.keys()
     task = DATASET_TASK[dataset_name]
     normalize = task == 'regression'
     if task == 'classification':
-        assert args.model == 'BSGP' 
+        assert params['model'] == 'BSGP'
     data_uci = UCIDataset(dataset=dataset_name, k=params['kfold'], normalize=normalize, seed=0)
 
     # ACD prior args
     prior_kernel = None
     if params['kernel_type'] == 'ACD':
-        prior_kernel =  {'type': params['prior_kernel_type'], 
-                         'm': params['m'],
-                         'v': params['v'],
-                         'b': params['b'], 
-                         'global_shrinkage': params['global_shrinkage']}
+        prior_kernel =  {
+        'kernel': 'ACD',
+        'type': params['prior_kernel_type'], 
+        'b': params['b'], 
+        'global_shrinkage': params['global_shrinkage'],
+        'm': params['m'],
+        'v': params['v']}
     else:
-        prior_kernel =  {'type': 'ARD'}
-        
+        prior_kernel =  {'kernel': 'ARD'}
+
     # Results directory
-    run_path = next_path(os.path.dirname(os.path.realpath(__file__)) + '/results/' + '/run-%04d/')
+    run_path = next_path(os.path.dirname('./results/' + '/run-%04d/'))
     samples_dir = os.path.join(run_path, 'samples')
     kernel_dir = os.path.join(run_path, 'kernel')
     ensure_dir(samples_dir)
@@ -149,12 +150,16 @@ def main(args):
             test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=len(model.gp_samples), ystd=Y_train_std)
             print('TEST NRMSE =\t %5.2f' % test_nrmse)
 
-        # Save posterior samples
-        save_samples(kernel_dir, model, k=k, test_mnll=test_mnll, test_error_rate=test_error_rate, test_nrmse=test_nrmse)
+        # Save samples
+        save_samples(kernel_dir, model, k=k,
+                     test_mnll=test_mnll,
+                     test_error_rate=test_error_rate,
+                     test_nrmse=test_nrmse)
 
-if __name__ =='__main__':
+
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
-    parser.add_argument('--experiment', type=str, default="ard.json")
+    parser.add_argument('--experiment', type=str, default="")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
     parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant"], default="boston")
     args = parser.parse_args()
