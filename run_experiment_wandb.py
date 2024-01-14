@@ -8,7 +8,7 @@ import torch.optim as optim
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
 from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
-from src.misc.utils import ensure_dir, next_path
+from src.misc.utils import ensure_dir, next_path, set_seed
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -50,6 +50,7 @@ def save_samples(folder_path, model, artifact, run, **kwargs):
     run.log({"test_mnll": kwargs['test_mnll'], "test_nrmse": kwargs['test_nrmse']})
 
 def main(args):
+    set_seed(0)
     # Read experiment parameters
     params_folder = './experiments'
     with open(os.path.join(params_folder,'defaults.json'), 'r') as file:
@@ -98,7 +99,7 @@ def main(args):
         prior_kernel =  {'kernel': 'ARD'}
 
     # Results directory
-    run_path = next_path(os.path.dirname('/results/' + '/run-%04d/'))
+    run_path = next_path(os.path.dirname('./results/' + '/run-%04d/'))
     samples_dir = os.path.join(run_path, 'samples')
     kernel_dir = os.path.join(run_path, 'kernel')
     ensure_dir(samples_dir)

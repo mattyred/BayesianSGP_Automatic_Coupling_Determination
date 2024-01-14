@@ -79,9 +79,13 @@ class RBF(Kern):
                 # P = torch.eye(input_dim, dtype=torch.float64)
                 # L = torch.linalg.cholesky(P, upper=False)
                 # l = L[torch.tril(torch.ones_like(L, dtype=torch.float64)).bool()]
-                mean = torch.zeros(low_tri_shape, dtype=torch.float64)
-                std = torch.ones(low_tri_shape, dtype=torch.float64) * 0.1
-                l = torch.normal(mean=mean, std=std)
+                # mean = torch.zeros(low_tri_shape, dtype=torch.float64)
+                # std = torch.ones(low_tri_shape, dtype=torch.float64) * 0.1
+                # l = torch.normal(mean=mean, std=std)
+                L = 2 * torch.rand((self.input_dim, self.input_dim), dtype=torch.float64) - 1
+                P = torch.mm(L, L.t()) + torch.eye(self.input_dim, dtype=torch.float64) * 1e-6
+                L = torch.linalg.cholesky(P, upper=False)
+                l = L[torch.tril(torch.ones_like(L, dtype=torch.float64)).bool()]
             else:
                 l = init_val * torch.ones(low_tri_shape, dtype=torch.float64)
             self.L = parameter.Param(val=l)

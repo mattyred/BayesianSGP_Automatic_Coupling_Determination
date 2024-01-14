@@ -7,7 +7,7 @@ import torch.optim as optim
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
 from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
-from src.misc.utils import ensure_dir, next_path
+from src.misc.utils import ensure_dir, next_path, set_seed
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -45,6 +45,7 @@ def save_samples(folder_path, model, **kwargs):
     np.savez(filepath, **npz_dict)
 
 def main(args):
+    set_seed(0)
     # Read experiment parameters
     params_folder = './experiments'
     with open(os.path.join(params_folder,'defaults.json'), 'r') as file:
@@ -121,7 +122,7 @@ def main(args):
 
             log_prob = model.train_step(device, bsgp_sampler, K=params['K'], clip_value=clip_value)
             if len(model.optimization_params_names) > 0:
-                log_prob = model.optimizer_step(device, bsgp_optimizer, clip_value=clip_value)
+                log_prob = model.optimizer_step(device, bsgp_optimizer, clip_value=None)
 
             if (iter > params['n_burnin_iters']) and (iter % params['collect_every'] == 0):
                 model.save_sample(fold_samples_dir, sample_idx)

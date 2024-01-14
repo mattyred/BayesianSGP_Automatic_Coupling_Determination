@@ -16,6 +16,7 @@
 import numpy as np
 import scipy.special
 import torch
+import math
 
 jitter = 1e-6 # 1e-19
 
@@ -74,3 +75,4 @@ def loghorseshoe(x, scale):
     z = torch.log1p(-torch.tensor(g)) - torch.log(torch.tensor(g))
     return torch.sum(-torch.nn.functional.softplus(z - xx / (1 - g)) + torch.log(
             torch.log1p(g / xx - (1 - g) / (h + b * xx)**2)) + c)
+    
