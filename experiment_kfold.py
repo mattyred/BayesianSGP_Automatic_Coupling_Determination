@@ -162,6 +162,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
     parser.add_argument('--experiment', type=str, default="")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
-    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant"], default="boston")
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete"], default="boston")
     args = parser.parse_args()
     main(args)

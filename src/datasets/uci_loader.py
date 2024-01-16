@@ -13,7 +13,8 @@ DATASET_TASK = {'boston': 'regression',
                 'breast': 'classification',
                 'powerplant': 'regression',
                 'kin8nm': 'regression',
-                'powerplant': 'regression'}
+                'powerplant': 'regression',
+                'concrete': 'regression'}
 
 class UCIDataset():
 
