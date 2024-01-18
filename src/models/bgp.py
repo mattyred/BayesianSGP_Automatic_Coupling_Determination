@@ -12,9 +12,9 @@ from ..core.densities import *
 def logdet_jacobian(kernel, eps=1e-6):
     l_matrix = kernel.l_matrix
     n = l_matrix.size(0)
-    diag_l = torch.diagonal(l_matrix) 
+    diag_l = torch.clamp(torch.abs(torch.diagonal(l_matrix)), min=1e-8)
     exps = torch.tensor(np.flip(np.arange(0, n) + 1.).copy(), device=l_matrix.device, dtype=l_matrix.dtype)
-    return n * np.log(2.) + torch.sum(torch.mul(exps, torch.log(torch.abs(diag_l)))) 
+    return n * np.log(2.) + torch.sum(torch.mul(exps, torch.log(diag_l))) 
 
 class BGP(nn.Module):
  
@@ -166,9 +166,9 @@ class BGP(nn.Module):
             log_prob = self.log_prob(X_batch, Y_batch)
             sampler.zero_grad()
             loss = -log_prob
+            loss.backward()
             if clip_value is not None:
                 self._clip_grad_value(self.sampling_params, clip_value)
-            loss.backward()
             sampler.step()
         return log_prob
 
@@ -177,9 +177,9 @@ class BGP(nn.Module):
         log_prob = self.log_prob(X_batch, Y_batch)
         optimizer.zero_grad()
         loss = -log_prob
+        loss.backward()
         if clip_value is not None:
             self._clip_grad_value(self.optim_params, clip_value)
-        loss.backward()
         optimizer.step()
         return log_prob
 

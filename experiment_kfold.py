@@ -131,6 +131,7 @@ def main(args):
 
             if iter % 100 == 0:
                 print('TRAIN\t| iter = %6d       sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
+
             iter += 1
 
         # MNLL performance

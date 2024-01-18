@@ -212,9 +212,9 @@ class BSGP(nn.Module):
             log_prob = self.log_prob(X_batch, Y_batch)
             sampler.zero_grad()
             loss = -log_prob
+            loss.backward()
             if clip_value is not None:
                 self._clip_grad_value(self.sampling_params, clip_value)
-            loss.backward()
             sampler.step()
         return log_prob
 
@@ -223,9 +223,9 @@ class BSGP(nn.Module):
         log_prob = self.log_prob(X_batch, Y_batch)
         optimizer.zero_grad()
         loss = -log_prob
+        loss.backward()
         if clip_value is not None:
             self._clip_grad_value(self.optim_params, clip_value)
-        loss.backward()
         optimizer.step()
         return log_prob
 
