@@ -42,6 +42,7 @@ class BGP(nn.Module):
         if len(self.likelihood.state_dict()) > 0:
             self.optimization_params_names.append('likelihood.variance')
         
+        self.gp_samples = None
         if n_data is None:
             self.N = X.shape[0]
         else:
@@ -184,14 +185,19 @@ class BGP(nn.Module):
         return log_prob
 
     def predict_y(self, X):
-        S = len(self.gp_samples)
         ms, vs = [], []
-        for i in range(S):
-            gp_params = self.load_samples(i)
-            self.gp_params = gp_params
+        if self.gp_samples is None:
             y_mean, y_var = self.predict(X)
             ms.append(y_mean.cpu().detach())
             vs.append(y_var.cpu().detach())
+        else:
+            S = len(self.gp_samples)
+            for i in range(S):
+                gp_params = self.load_samples(i)
+                self.gp_params = gp_params
+                y_mean, y_var = self.predict(X)
+                ms.append(y_mean.cpu().detach())
+                vs.append(y_var.cpu().detach())
         return np.stack(ms, 0), np.stack(vs, 0)
     
     def get_minibatch(self, device):

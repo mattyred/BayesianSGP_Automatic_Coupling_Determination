@@ -130,8 +130,12 @@ def main(args):
                 model.set_samples(fold_samples_dir, cache=True)
 
             if iter % 100 == 0:
-                print('TRAIN\t| iter = %6d       sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
-
+                print('TRAIN\t| iter = %6d\t sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
+                with torch.no_grad():
+                    y_mean, y_var = model.predict(X_test.to(device))
+                    ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
+                    test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std)
+                    print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
             iter += 1
 
         # MNLL performance
