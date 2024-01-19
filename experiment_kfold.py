@@ -1,4 +1,5 @@
 import torch
+import wandb
 import numpy as np
 import os
 import json
@@ -10,6 +11,7 @@ from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from src.misc.utils import ensure_dir, next_path, set_seed
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+WANDB = False
 
 def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
@@ -40,9 +42,22 @@ def save_samples(folder_path, model, **kwargs):
                 'test_mnll':  kwargs['test_mnll'],
                 'test_error_rate': kwargs['test_error_rate'],
                 'test_nrmse': kwargs['test_nrmse']}
+    
+    # Store validation metrics
+    for metric_key in kwargs['validation_metrics_dict'].keys():
+        metric_iter = kwargs['validation_metrics_dict'][metric_key]
+        if len(metric_iter) > 0:
+            npz_dict[metric_key] = np.array(metric_iter)
+
     filepath = os.path.join(folder_path, f'kernel_samples_fold_{kwargs["k"]}')
     # Save locally
     np.savez(filepath, **npz_dict)
+    if WANDB:
+        # Upload to wandb
+        kwargs['artifact'].add_file(filepath + '.npz')
+        # Log on wandb
+        kwargs['run'].log({"test_mnll": kwargs['test_mnll']})
+
 
 def main(args):
     set_seed(0)
@@ -50,12 +65,30 @@ def main(args):
     params_folder = './experiments'
     with open(os.path.join(params_folder,'defaults.json'), 'r') as file:
       default_params = json.load(file)
-    with open(os.path.join(params_folder, args.experiment), 'r') as file:
+    with open(os.path.join(params_folder, args.experiment + '.json'), 'r') as file:
       exp_params = json.load(file)
     default_params.update(exp_params)
     params = default_params
     params['model'] = args.model
     params['dataset'] = args.dataset
+
+    run = None
+    run_artifact = None
+    WANDB = args.use_wandb
+    if WANDB:
+        # Init Wandb run
+        run = wandb.init(
+        project="BSGPtorch-wandb",
+        name=f"exp_{params['dataset']}_{params['model']}_{args.experiment}",
+        config={
+            "epsilon": params['epsilon'],
+            "mdecay": params['mdecay'],
+            "adam_lr": params['adam_lr'],
+            "model": params['model'],
+            "dataset": params['dataset'],
+            "kernel": params['kernel_type']
+        })
+        run_artifact = wandb.Artifact(f"exp_{params['dataset']}_{params['model']}_{args.experiment}_params", type=params['model'])
 
     dataset_name = params['dataset']
     assert dataset_name in DATASET_TASK.keys()
@@ -116,6 +149,11 @@ def main(args):
         if len(model.optimization_params_names) > 0:
             bsgp_optimizer = optim.Adam(model.optim_params, lr=params['adam_lr'])
 
+        # Training
+        test_nrmse_iter = []
+        test_error_rate_iter = []
+        test_mnll_iter = []
+        ll_iter = []
         iter = 0
         sample_idx = 0
         for iter in range(n_sampling_iters):
@@ -130,12 +168,25 @@ def main(args):
                 model.set_samples(fold_samples_dir, cache=True)
 
             if iter % 100 == 0:
-                print('TRAIN\t| iter = %6d\t sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
+                ll = -log_prob.detach()
+                print('TRAIN\t| iter = %6d\t sample marginal LL =\t %5.2f' % (iter, ll))
+                ll_iter.append(ll.item())
+
+            # Validation
+            if iter % 10 == 0:
                 with torch.no_grad():
                     y_mean, y_var = model.predict(X_test.to(device))
                     ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
                     test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std)
-                    print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
+                    test_mnll_iter.append(test_mnll)
+                    #print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
+                    if task == 'classification':
+                        accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
+                        test_error_rate = 1 - accuracy
+                        test_error_rate_iter.append(test_error_rate)
+                    elif task == 'regression':
+                        test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=1, ystd=Y_train_std)
+                        test_nrmse_iter.append(test_nrmse)
             iter += 1
 
         # MNLL performance
@@ -157,10 +208,20 @@ def main(args):
             print('TEST NRMSE =\t %5.2f' % test_nrmse)
 
         # Save samples
+        validation_metrics_dict = {'test_nrmse_iter': test_nrmse_iter, 
+                                   'test_error_rate_iter': test_error_rate_iter, 
+                                   'test_mnll_iter': test_mnll_iter, 
+                                   'll_iter': ll_iter}
         save_samples(kernel_dir, model, k=k,
+                     artifact=run_artifact, run=run,
                      test_mnll=test_mnll,
                      test_error_rate=test_error_rate,
-                     test_nrmse=test_nrmse)
+                     test_nrmse=test_nrmse,
+                     validation_metrics_dict=validation_metrics_dict)
+        
+        if WANDB:
+            run.log_artifact(run_artifact)
+            wandb.finish()
 
 
 if __name__ == '__main__':
@@ -168,5 +229,6 @@ if __name__ == '__main__':
     parser.add_argument('--experiment', type=str, default="")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
     parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete"], default="boston")
+    parser.add_argument('--use_wandb', action='store_true')
     args = parser.parse_args()
     main(args)
