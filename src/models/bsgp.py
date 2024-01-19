@@ -77,7 +77,7 @@ class BSGP(nn.Module):
             self.N = X.shape[0]
         else:
             self.N = n_data
-        self.M = n_inducing
+        self.M = min(n_inducing, self.N)
         if inducing_points_init is not None:
             self.M = inducing_points_init.shape[0]
         else:
