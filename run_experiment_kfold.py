@@ -11,7 +11,6 @@ from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from src.misc.utils import ensure_dir, next_path, set_seed
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-WANDB = False
 
 def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
@@ -52,11 +51,12 @@ def save_samples(folder_path, model, **kwargs):
     filepath = os.path.join(folder_path, f'kernel_samples_fold_{kwargs["k"]}')
     # Save locally
     np.savez(filepath, **npz_dict)
+    print(WANDB)
     if WANDB:
-        # Upload to wandb
-        kwargs['artifact'].add_file(filepath + '.npz')
-        # Log on wandb
-        kwargs['run'].log({"test_mnll": kwargs['test_mnll']})
+      # Upload to wandb
+      kwargs['artifact'].add_file(filepath + '.npz')
+      # Log on wandb
+      kwargs['run'].log({"test_mnll": kwargs['test_mnll']})
 
 
 def main(args):
@@ -74,6 +74,7 @@ def main(args):
 
     run = None
     run_artifact = None
+    global WANDB
     WANDB = args.use_wandb
     if WANDB:
         # Init Wandb run
@@ -219,9 +220,9 @@ def main(args):
                      test_nrmse=test_nrmse,
                      validation_metrics_dict=validation_metrics_dict)
         
-        if WANDB:
-            run.log_artifact(run_artifact)
-            wandb.finish()
+    if WANDB:
+      run.log_artifact(run_artifact)
+      wandb.finish()
 
 
 if __name__ == '__main__':
