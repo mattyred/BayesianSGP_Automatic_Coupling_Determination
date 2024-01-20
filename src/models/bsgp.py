@@ -6,7 +6,7 @@ import os
 
 from scipy.cluster.vq import kmeans2
 
-from ..core.conditionals import conditional, conditional2
+from ..core.conditionals import conditional
 from ..misc.utils import get_all_files
 from ..core.densities import *
 
