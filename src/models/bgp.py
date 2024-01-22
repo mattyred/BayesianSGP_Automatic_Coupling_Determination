@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import os
 
-#from ..core.conditionals import bgp_conditional, conditional
+from ..core.conditionals import bgp_conditional_regression, bgp_conditional_classification
 
 from ..misc.utils import get_all_files
 from ..core.densities import *
@@ -19,7 +19,7 @@ def logdet_jacobian(kernel, eps=1e-6):
 class BGP(nn.Module):
  
     def __init__(self, X, Y, kernel, likelihood, inputs, outputs,
-                 minibatch_size=100, prior_kernel=None, n_data=None, full_cov=False, prior_lik_var=0.05):
+                 minibatch_size=100, prior_kernel=None, n_data=None, full_cov=False, prior_lik_var=0.05, task='regression'):
         super(BGP, self).__init__()
         self.kern = kernel
         self.likelihood = likelihood
@@ -41,6 +41,14 @@ class BGP(nn.Module):
         self.optimization_params_names = []
         if len(self.likelihood.state_dict()) > 0:
             self.optimization_params_names.append('likelihood.variance')
+
+        # classification parameters
+        self.task = task
+        if self.task == 'classification':
+            self.V = nn.parameter.Parameter(
+                torch.zeros((X.shape[0], self.outputs), dtype=torch.float64),
+                requires_grad=True)
+            self.sampling_params_names.append('V')
         
         self.gp_samples = None
         if n_data is None:
@@ -50,24 +58,17 @@ class BGP(nn.Module):
 
         self.Lm = None
     
-    def predict(self, X):
-        Kx = self.kern.K(self.X, X)
-        K = self.kern.K(self.X) + torch.eye(self.X.size(0), dtype=self.X.dtype, device=self.X.device) * self.likelihood.variance.get()
-        L = torch.linalg.cholesky(K, upper=False)
-
-        A = torch.linalg.solve(L, Kx)  # could use triangular solve, note gesv has B first, then A in AX=B
-        V  = torch.linalg.solve(L, self.Y) # could use triangular solve
-
-        fmean = torch.mm(A.t(), V)
-        if self.full_cov:
-            fvar = self.kern.K(X) - torch.mm(A.t(), A)
-            fvar = fvar.unsqueeze(2).expand(fvar.size(0), fvar.size(1), self.Y.size(1))
+    def conditional(self, X):
+        if self.task == 'regression':
+            mean, var = bgp_conditional_regression(X, self.X, self.Y, self.kern, 
+                                                self.likelihood.variance.get(), full_cov=self.full_cov)
         else:
-            fvar = self.kern.Kdiag(X) - (A**2).sum(0)
-            fvar = fvar.view(-1, 1)
-            fvar = fvar.expand(fvar.size(0), self.Y.size(1))
-
-        y_mean, y_var = self.likelihood.predict_mean_and_var(fmean, fvar)
+            mean, var = bgp_conditional_classification(X, self.X, self.V, self.Y, self.kern, full_cov=self.full_cov)
+        return mean, var
+    
+    def predict(self, X):
+        f_mean, f_var = self.conditional(X)
+        y_mean, y_var = self.likelihood.predict_mean_and_var(f_mean, f_var)
 
         return y_mean, y_var
 
@@ -123,25 +124,29 @@ class BGP(nn.Module):
 
     
     def log_likelihood(self, X, Y, jitter_level=1e-6):
-        K = self.kern.K(X, X)
-
-        if self.likelihood.variance.get() != 0.:
-            K = K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * self.likelihood.variance.get()
-        else:
-            K = K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
-        
+        if self.task == 'regression':
+            K = self.kern.K(X, X)
+            if self.likelihood.variance.get() != 0.:
+                K = K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * self.likelihood.variance.get()
+            else:
+                K = K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
             
-        multiplier = 1
-        while True:
-            try:
-                L = torch.linalg.cholesky(K + multiplier*jitter_level, upper=False)
-                break
-            except RuntimeError as err:
-                multiplier *= 2.
-                if float(multiplier) == float("inf"):
-                    raise RuntimeError("increase to inf jitter")
+                
+            multiplier = 1
+            while True:
+                try:
+                    L = torch.linalg.cholesky(K + multiplier*jitter_level, upper=False)
+                    break
+                except RuntimeError as err:
+                    multiplier *= 2.
+                    if float(multiplier) == float("inf"):
+                        raise RuntimeError("increase to inf jitter")
+                    
+            log_likelihood = multivariate_normal(Y, torch.zeros_like(Y, device=Y.device), L)
 
-        log_likelihood = multivariate_normal(Y, torch.zeros_like(Y, device=Y.device), L)
+        else:
+            f_mean, f_var = self.conditional(X)
+            log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
 
         return log_likelihood
 

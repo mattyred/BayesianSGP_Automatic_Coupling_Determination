@@ -10,11 +10,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
 DATASET_TASK = {'boston': 'regression',
-                'breast': 'classification',
                 'powerplant': 'regression',
                 'kin8nm': 'regression',
-                'powerplant': 'regression',
-                'concrete': 'regression'}
+                'concrete': 'regression',
+                'breast': 'classification',
+                'eeg': 'classification'}
 
 class UCIDataset():
 
@@ -42,17 +42,13 @@ class UCIDataset():
                 Y_train, Y_test = Y[train_index], Y[test_index]
 
                 # Normalize data
+                X_train_mean, X_train_std = X_train.mean(), X_test.std() + 1e-9
+                Y_train_mean, Y_train_std = Y_train.mean(), Y_test.std() + 1e-9
+                X_train = (X_train - X_train_mean) / X_train_std  
+                X_test = (X_test - X_train_mean) / X_train_std  
                 if task == 'regression':
-                    X_train_mean, X_train_std = X_train.mean(), X_test.std() + 1e-9
-                    Y_train_mean, Y_train_std = Y_train.mean(), Y_test.std() + 1e-9
-                    X_train = (X_train - X_train_mean) / X_train_std  
-                    X_test = (X_test - X_train_mean) / X_train_std  
                     Y_train =  (Y_train - Y_train_mean) / Y_train_std  
                     Y_test =  (Y_test - Y_train_mean) / Y_train_std
-                elif task == 'classification':
-                    X_train, X_train_mean, X_train_std = zscore_normalization(X_train)
-                    X_test, _, _ = zscore_normalization(X_test, X_train_mean, X_train_std)
-                    Y_train_mean, Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
 
                 # Save data
                 self.X_train_kfold.append(torch.tensor(X_train, dtype=torch.float64))

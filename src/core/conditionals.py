@@ -120,8 +120,8 @@ def bgp_conditional_regression(Xnew, X, Y, kern, likelihood_variance, full_cov=F
 
         where F* are points on the GP at Xnew, Y are noisy observations at X.
     """
-    Kx = kern.K(Xnew, X)
-    K =  kern.K(X) + torch.eye(Xnew.size(0), dtype=Xnew.dtype, device=Xnew.device) * likelihood_variance
+    Kx = kern.K(X, Xnew)
+    K = kern.K(X) + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * likelihood_variance
     L = torch.linalg.cholesky(K, upper=False)
 
     A = torch.linalg.solve(L, Kx)  # could use triangular solve, note gesv has B first, then A in AX=B
@@ -129,10 +129,10 @@ def bgp_conditional_regression(Xnew, X, Y, kern, likelihood_variance, full_cov=F
 
     fmean = torch.mm(A.t(), V)
     if full_cov:
-        fvar = kern.K(X) - torch.mm(A.t(), A)
+        fvar = kern.K(Xnew) - torch.mm(A.t(), A)
         fvar = fvar.unsqueeze(2).expand(fvar.size(0), fvar.size(1), Y.size(1))
     else:
-        fvar = kern.Kdiag(X) - (A**2).sum(0)
+        fvar = kern.Kdiag(Xnew) - (A**2).sum(0)
         fvar = fvar.view(-1, 1)
         fvar = fvar.expand(fvar.size(0), Y.size(1))
 
@@ -148,18 +148,18 @@ def bgp_conditional_classification(Xnew, X, V, Y, kern, full_cov=False, jitter_l
         with
             L L^T = K
     """
-    Kx = kern.K(Xnew, X)
-    K =  kern.K(X) + torch.eye(Xnew.size(0), dtype=Xnew.dtype, device=Xnew.device) * jitter_level
+    Kx = kern.K(X, Xnew)
+    K = kern.K(X) + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level
     L = torch.linalg.cholesky(K, upper=False)
 
     A = torch.linalg.solve(L, Kx)  # could use triangular solve, note gesv has B first, then A in AX=B
 
     fmean = torch.mm(A.t(), V)
     if full_cov:
-        fvar = kern.K(X) - torch.mm(A.t(), A)
+        fvar = kern.K(Xnew) - torch.mm(A.t(), A)
         fvar = fvar.unsqueeze(2).expand(fvar.size(0), fvar.size(1), Y.size(1))
     else:
-        fvar = kern.Kdiag(X) - (A**2).sum(0)
+        fvar = kern.Kdiag(Xnew) - (A**2).sum(0)
         fvar = fvar.view(-1, 1)
         fvar = fvar.expand(fvar.size(0), Y.size(1))
 

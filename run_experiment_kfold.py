@@ -10,7 +10,7 @@ from src.model_builder import build_model, compute_mnll, compute_accuracy, compu
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from src.misc.utils import ensure_dir, next_path, set_seed
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
 
 def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
@@ -95,8 +95,8 @@ def main(args):
     assert dataset_name in DATASET_TASK.keys()
     task = DATASET_TASK[dataset_name]
     normalize = task == 'regression'
-    if task == 'classification':
-        assert params['model'] == 'BSGP'
+    #if task == 'classification':
+    #    assert params['model'] == 'BSGP'
     data_uci = UCIDataset(dataset=dataset_name, k=params['kfold'], normalize=normalize, seed=0)
 
     # ACD prior args
@@ -185,6 +185,7 @@ def main(args):
                         accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
                         test_error_rate = 1 - accuracy
                         test_error_rate_iter.append(test_error_rate)
+                        print('TEST\t| iter = %6d\t Accuracy =\t %5.2f%%' % (iter, accuracy*100))
                     elif task == 'regression':
                         test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=1, ystd=Y_train_std)
                         test_nrmse_iter.append(test_nrmse)
@@ -229,7 +230,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
     parser.add_argument('--experiment', type=str, default="")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
-    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete"], default="boston")
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
     args = parser.parse_args()
     main(args)

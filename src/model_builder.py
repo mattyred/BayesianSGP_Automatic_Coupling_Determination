@@ -53,7 +53,8 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
                 minibatch_size=mb_size,
                 prior_kernel=prior_kernel,
                 n_data=N,
-                full_cov=params['full_cov'])
+                full_cov=params['full_cov'],
+                task=task)
 
     return  model
 
