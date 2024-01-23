@@ -178,9 +178,9 @@ def main(args):
                 with torch.no_grad():
                     y_mean, y_var = model.predict(X_test.to(device))
                     ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
-                    test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std)
+                    test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std, task=task)
+                    print(test_mnll)
                     test_mnll_iter.append(test_mnll)
-                    #print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
                     if task == 'classification':
                         accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
                         test_error_rate = 1 - accuracy
@@ -195,7 +195,7 @@ def main(args):
         model.set_samples(fold_samples_dir, cache=True)
         ms, vs = model.predict_y(X_test.to(device))
         # ms: [num_posterior_samples, Ntest, 1] on column j prediction for data sample j
-        test_mnll = compute_mnll(ms, vs, Y_test.numpy(), len(model.gp_samples), Y_train_std)
+        test_mnll = compute_mnll(ms, vs, Y_test.numpy(), len(model.gp_samples), Y_train_std, task=task)
         print('\nTEST MNLL =\t %5.2f' % (test_mnll))
 
         # Task-specific performance
@@ -230,7 +230,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
     parser.add_argument('--experiment', type=str, default="")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
-    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg"], default="boston")
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
     args = parser.parse_args()
     main(args)

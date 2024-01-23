@@ -14,8 +14,9 @@ DATASET_TASK = {'boston': 'regression',
                 'kin8nm': 'regression',
                 'concrete': 'regression',
                 'breast': 'classification',
-                'eeg': 'classification'}
-
+                'eeg': 'classification',
+                'wilt': 'classification',
+                'diabetes': 'classification'}
 class UCIDataset():
 
     def __init__(self, dataset, k=-1, normalize=True, seed=0):

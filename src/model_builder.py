@@ -59,10 +59,14 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
     return  model
 
 
-def compute_mnll(ms, vs, Y, num_posterior_samples=100, ystd=0.1):
+def compute_mnll(ms, vs, Y, num_posterior_samples=100, ystd=0.1, task='regression'):
     with torch.no_grad():
-        logps = norm.logpdf(np.repeat(Y[None, :, :]*ystd, num_posterior_samples, axis=0), ms*ystd, np.sqrt(vs)*ystd)
-        mnll = -np.mean(logsumexp(logps, axis=0) - np.log(num_posterior_samples))
+        if task == 'regression':
+            logps = norm.logpdf(np.repeat(Y[None, :, :]*ystd, num_posterior_samples, axis=0), ms*ystd, np.sqrt(vs)*ystd)
+            mnll = -np.mean(logsumexp(logps, axis=0) - np.log(num_posterior_samples))
+        else:
+            Ys_ = np.repeat(Y[None, :, :], num_posterior_samples, axis=0)
+            mnll = -np.mean(Ys_ * np.log(ms) + (1 - Ys_) * np.log(1 - ms))
         return mnll
 
 def compute_accuracy(ms, vs, Y, num_posterior_samples=100, ystd=0.1):
