@@ -17,6 +17,7 @@ DATASET_TASK = {'boston': 'regression',
                 'eeg': 'classification',
                 'wilt': 'classification',
                 'diabetes': 'classification'}
+
 class UCIDataset():
 
     def __init__(self, dataset, k=-1, normalize=True, seed=0):
@@ -46,8 +47,8 @@ class UCIDataset():
                 Y_train, Y_test = Y[train_index], Y[test_index]
 
                 # Normalize data 
-                X_train_mean, X_train_std = X_train.mean(), X_train.std() + 1e-9
-                Y_train_mean, Y_train_std = Y_train.mean(), Y_test.std() + 1e-9
+                X_train_mean, X_train_std = X_train.mean(0), X_train.std(0) + 1e-9
+                Y_train_mean, Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
                 if task == 'regression':
                     X_train = (X_train - X_train_mean) / X_train_std  
                     X_test = (X_test - X_train_mean) / X_train_std 
