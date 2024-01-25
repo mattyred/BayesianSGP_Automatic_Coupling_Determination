@@ -29,7 +29,7 @@ class UCIDataset():
         data = pd.read_csv(f'data/uci/{dataset}.csv')
         X, Y = data.iloc[:,0:-1].to_numpy(), data.iloc[:,-1].to_numpy().reshape(-1,1)
 
-        if task == 'classification':
+        if normalize:
             X = (X - X.mean(0)) / (X.std(0)+1e-9)
 
         if k !=-1 :
@@ -47,11 +47,11 @@ class UCIDataset():
                 Y_train, Y_test = Y[train_index], Y[test_index]
 
                 # Normalize data 
-                X_train_mean, X_train_std = X_train.mean(0), X_train.std(0) + 1e-9
+                #X_train_mean, X_train_std = X_train.mean(0), X_train.std(0) + 1e-9
                 Y_train_mean, Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
                 if task == 'regression':
-                    X_train = (X_train - X_train_mean) / X_train_std  
-                    X_test = (X_test - X_train_mean) / X_train_std 
+                    #X_train = (X_train - X_train_mean) / X_train_std  
+                    #X_test = (X_test - X_train_mean) / X_train_std 
                     Y_train =  (Y_train - Y_train_mean) / Y_train_std  
                     Y_test =  (Y_test - Y_train_mean) / Y_train_std
 

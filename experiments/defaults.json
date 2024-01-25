@@ -1,5 +1,5 @@
 {
-    "num_inducing": 500,
+    "num_inducing": 100,
     "prior_inducing_type": "normal",
     "minibatch_size": 1000,
     "adam_lr": 0.01,
