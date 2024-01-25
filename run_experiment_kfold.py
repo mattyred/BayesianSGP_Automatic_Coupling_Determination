@@ -71,6 +71,7 @@ def main(args):
     params = default_params
     params['model'] = args.model
     params['dataset'] = args.dataset
+    params['num_inducing'] = args.num_inducing
 
     run = None
     run_artifact = None
@@ -94,8 +95,6 @@ def main(args):
     dataset_name = params['dataset']
     assert dataset_name in DATASET_TASK.keys()
     task = DATASET_TASK[dataset_name]
-    #if task == 'classification':
-    #    assert params['model'] == 'BSGP'
     data_uci = UCIDataset(dataset=dataset_name, k=params['kfold'], normalize=True, seed=0)
 
     # ACD prior args
@@ -179,12 +178,12 @@ def main(args):
                     ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
                     test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std, task=task)
                     test_mnll_iter.append(test_mnll)
-                    print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
+                    #print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
                     if task == 'classification':
                         accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
                         test_error_rate = 1 - accuracy
                         test_error_rate_iter.append(test_error_rate)
-                        print('TEST\t| iter = %6d\t Accuracy =\t %5.2f%%' % (iter, accuracy*100))
+                        #print('TEST\t| iter = %6d\t Accuracy =\t %5.2f%%' % (iter, accuracy*100))
                     elif task == 'regression':
                         test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=1, ystd=Y_train_std)
                         test_nrmse_iter.append(test_nrmse)
@@ -231,5 +230,6 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
     parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
+    parser.add_argument('--num_inducing', type=int, default=500)
     args = parser.parse_args()
     main(args)
