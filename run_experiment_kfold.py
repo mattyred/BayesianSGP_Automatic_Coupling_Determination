@@ -183,7 +183,7 @@ def main(args):
                         accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
                         test_error_rate = 1 - accuracy
                         test_error_rate_iter.append(test_error_rate)
-                        #print('TEST\t| iter = %6d\t Accuracy =\t %5.2f%%' % (iter, accuracy*100))
+                        print('TEST\t| iter = %6d\t Error-Rate =\t %5.2f%%' % (iter, test_error_rate*100))
                     elif task == 'regression':
                         test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=1, ystd=Y_train_std)
                         test_nrmse_iter.append(test_nrmse)

@@ -138,7 +138,7 @@ def bgp_conditional_regression(Xnew, X, Y, kern, likelihood_variance, full_cov=F
 
     return fmean, fvar
 
-def bgp_conditional_classification(Xnew, X, V, Y, kern, full_cov=False, jitter_level=1e-6):
+def bgp_conditional_classification(Xnew, X, Y, kern, full_cov=False, jitter_level=1e-6):
     """
         This is a vanilla implementation of a GP with a non-Gaussian
         likelihood. The latent function values are represented by centered
@@ -153,6 +153,7 @@ def bgp_conditional_classification(Xnew, X, V, Y, kern, full_cov=False, jitter_l
     L = torch.linalg.cholesky(K, upper=False)
 
     A = torch.linalg.solve(L, Kx)  # could use triangular solve, note gesv has B first, then A in AX=B
+    V  = torch.linalg.solve(L, Y) # could use triangular solve
 
     fmean = torch.mm(A.t(), V)
     if full_cov:

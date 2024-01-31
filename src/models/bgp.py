@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import os
 
-from ..core.conditionals import bgp_conditional_regression, bgp_conditional_classification
+from ..core.conditionals import bgp_conditional_regression, bgp_conditional_classification, conditional
 
 from ..misc.utils import get_all_files
 from ..core.densities import *
@@ -63,7 +63,8 @@ class BGP(nn.Module):
             mean, var = bgp_conditional_regression(X, self.X, self.Y, self.kern, 
                                                 self.likelihood.variance.get(), full_cov=self.full_cov)
         else:
-            mean, var = bgp_conditional_classification(X, self.X, self.V, self.Y, self.kern, full_cov=self.full_cov)
+            mean, var = conditional(X, self.X, self.kern, self.V, full_cov=self.full_cov, whiten=True)
+            #mean, var = bgp_conditional_classification(X, self.X, self.V, self.Y, self.kern, full_cov=self.full_cov)
         return mean, var
     
     def predict(self, X):
@@ -119,8 +120,14 @@ class BGP(nn.Module):
 
         return log_prob
     
+    def log_prior_V(self):
+        return -torch.sum(torch.square(self.V)) / 2.0
+    
     def log_prior(self):
-        return self.log_prior_hyper()
+        if self.task == 'regression':
+            return self.log_prior_hyper()
+        elif self.task == 'classification':
+            return self.log_prior_hyper() + self.log_prior_V()
 
     
     def log_likelihood(self, X, Y, jitter_level=1e-6):
@@ -145,8 +152,15 @@ class BGP(nn.Module):
             log_likelihood = multivariate_normal(Y, torch.zeros_like(Y, device=Y.device), L)
 
         else:
-            f_mean, f_var = self.conditional(X)
-            log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
+            K = self.kern.K(X, X)
+            L = torch.linalg.cholesky(
+                K + torch.eye(X.size(0), dtype=X.dtype, device=X.device) * jitter_level, upper=False
+            )
+            F = torch.mm(L, self.V)
+
+            log_likelihood  =  torch.sum(self.likelihood.logp(F, Y))
+            #f_mean, f_var = self.conditional(X)
+            #log_likelihood = torch.sum(self.likelihood.predict_density(f_mean, f_var, Y))
 
         return log_likelihood
 
