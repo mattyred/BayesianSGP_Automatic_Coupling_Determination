@@ -69,13 +69,7 @@ class UCIDataset():
             X_train, X_test = X[train_indices], X[test_indices]
             Y_train, Y_test = Y[train_indices], Y[test_indices]
 
-            # Normalize data
-            if task == 'regression':
-                X_train, Y_train, X_test, Y_test, self.Y_train_mean, self.Y_train_std = normalize_data(X_train, Y_train, X_test, Y_test)
-            elif task == 'classification':
-                X_train, X_train_mean, X_train_std = zscore_normalization(X_train)
-                X_test, _, _ = zscore_normalization(X_test, X_train_mean, X_train_std)
-                self.Y_train_mean, self.Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
+            self.Y_train_mean, self.Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
 
             # Save data
             self.X_train = torch.tensor(X_train, dtype=torch.float64)

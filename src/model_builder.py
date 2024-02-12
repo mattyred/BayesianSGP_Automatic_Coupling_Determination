@@ -1,5 +1,6 @@
 from .models.bsgp import BSGP
 from .models.bgp import BGP
+from .models.vdmgp import VDMGP
 from .core.kernels import RBF
 
 from tqdm import tqdm
@@ -11,8 +12,8 @@ from scipy.special import logsumexp
 from .core.likelihoods import Gaussian, Bernoulli
 
 
-def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None):
-    assert model == 'BSGP' or model == 'BGP'
+def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None, num_latents=None):
+    assert model == 'BSGP' or model == 'BGP' or model == 'VDMGP'
     assert task == 'regression' or 'classification' 
 
     N, D_in, D_out = X.shape[0], X.shape[1], Y.shape[1]
@@ -55,7 +56,8 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
                 n_data=N,
                 full_cov=params['full_cov'],
                 task=task)
-
+    elif model =='VDMGP':
+        model = VDMGP(X=X, Y=Y, M=params['num_inducing'], K=num_latents, minibatch_size=mb_size)
     return  model
 
 
