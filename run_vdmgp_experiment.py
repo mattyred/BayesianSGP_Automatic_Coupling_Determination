@@ -68,8 +68,12 @@ def main():
     print(f'Results folder: {run_path}')
 
     # Model initialization
-    model = build_model(data_uci.X_train.to(device), data_uci.Y_train.to(device), vars(args), num_latents=D, model='VDMGP')
+    model = build_model(data_uci.X_train.to(device), data_uci.Y_train.to(device), vars(args), num_latents=10, model='VDMGP')
     model = model.to(device)
+
+    ## TEST likelihood
+    lik = model.compute_likelihood(data_uci.X_train.to(device), data_uci.Y_train.to(device))
+    mean, var = model.predict_y(data_uci.X_train.to(device))
     optimizer = optim.Adam(model.optim_params, lr=args.adam_lr)
     
     iter = 0
