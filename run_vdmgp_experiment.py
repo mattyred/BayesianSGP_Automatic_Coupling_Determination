@@ -72,33 +72,29 @@ def main():
     model = model.to(device)
 
     ## TEST likelihood
-    lik = model.compute_likelihood(data_uci.X_train.to(device), data_uci.Y_train.to(device))
-    mean, var = model.predict_y(data_uci.X_train.to(device))
-    optimizer = optim.Adam(model.optim_params, lr=args.adam_lr)
+    #lik = model.compute_likelihood(data_uci.X_train.to(device), data_uci.Y_train.to(device))
+    #mean, var = model.predict_y(data_uci.X_train.to(device))
+    optimizer = optim.Adam(model.parameters(), lr=args.adam_lr)
     
     iter = 0
     sample_idx = 0
-    print(f'Number of iterations: {n_sampling_iters}')
+    print(f'Number of iterations: {args.max_iterations}')
     print(f'Task: {task}')
-    print(f'Gradient clipping: {args.clip_by_value}')
+    #print(f'Gradient clipping: {args.clip_by_value}')
     print(model)
-    for iter in range(n_sampling_iters):
-
-        log_prob = model.train_step(device, bsgp_sampler, K=args.K, clip_value=clip_value)
-        if len(model.optimization_params_names) > 0:
-            log_prob = model.optimizer_step(device, bsgp_optimizer, clip_value=clip_value)
-
-        if (iter > args.n_burnin_iters) and (iter % args.collect_every == 0):
-            model.save_sample(samples_dir, sample_idx)
-            sample_idx += 1
-            model.set_samples(samples_dir, cache=True)
-
-        #if iter % 10 == 0:
-        #    print(f'kern.variance: {model.kern.variance.get()}')
-
-        if iter % 100 == 0:
-            print('TRAIN\t| iter = %6d       sample marginal LL =\t %5.2f' % (iter, -log_prob.detach()))
-        iter += 1
+    variance_parameter = model.likelihood.variance
+    # First round
+    variance_parameter.requires_grad  = False
+    for _ in range(2000):
+        elbo = model.train_step(optimizer)
+        loss = -elbo.detach()
+        ms, vs = model.predict_y(data_uci.X_test.to(device))
+        test_mnll = compute_mnll(ms, vs, data_uci.Y_test.numpy(), 1, Ystd)
+        print('Test MNLL = %5.2f | Train Loss = %5.2f'%(test_mnll, loss))
+    # Second round
+    variance_parameter.requires_grad = False
+    for _ in range(2000):
+        model.train_step(optimizer)
 
     # MNLL performance
     model.set_samples(samples_dir, cache=True)

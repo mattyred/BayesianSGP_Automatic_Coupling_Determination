@@ -62,6 +62,8 @@ class VDMGP(nn.Module):
         # init RBF-ARD kernel
         self.sigma_f = parameter.PositiveParam(torch.std(Y))
         self.kern = RBF(input_dim=self.K, ARD=True)
+        self.kern.variance.requires_grad = False
+        self.kern.lengthscales.requires_grad = False
 
     def compute_psi0(self, X):
         N = X.shape[0]
@@ -109,6 +111,14 @@ class VDMGP(nn.Module):
     def compute_psi2(self, X=None):
         return torch.sum(self.compute_batched_psi2(X), axis=0)
     
+    def compute_batch_trace(self, A):
+        N, M = A.shape[0],  A.shape[1]
+        mask = torch.zeros((N, M, M))
+        mask[:, torch.arange(0,M), torch.arange(0,M) ] = 1.0
+        output = torch.multiply(A, mask)
+        batch_trace = torch.sum(output,axis=(1,2))
+        return batch_trace
+
     def compute_likelihood(self, X=None, Y=None, jitter_level=1e-6):
         N = X.shape[0]
         D = self.D
@@ -177,20 +187,32 @@ class VDMGP(nn.Module):
         chol_Ku_Psi2 = torch.linalg.cholesky(Ku_Psi2) # M x M
 
         Psi1_Y = torch.mm(psi1.t(), self.Y) # M x 1
-        alpha = torch.linalg.solve(chol_Ku_Psi2, Psi1_Y)
+        alpha = torch.linalg.solve(chol_Ku_Psi2, Psi1_Y) # M x 1
 
-        Psi1new = self.compute_psi1(Xnew)
+        Psi1new = self.compute_psi1(Xnew) # N x M
 
-        mean = torch.mm(Psi1new, alpha)
+        mean = torch.mm(Psi1new, alpha) # N x 1
 
-        Psi2new = self.compute_batched_psi2(Xnew)
-        var = torch.trace(
+        Psi2new = self.compute_batched_psi2(Xnew) # N x M x M
+        var = self.compute_batch_trace( # compute trace of N x M x M tensor
             sigma2
             * torch.linalg.solve(torch.tile(chol_Ku_Psi2[None], [nNew, 1, 1]), Psi2new)
             - torch.linalg.solve(torch.tile(chol_Ku[None], [nNew, 1, 1]), Psi2new)
-            + torch.tile(torch.mm(alpha, alpha.t())[None], [nNew, 1, 1])
-            @ Psi2new
+            + torch.matmul(torch.tile(torch.matmul(alpha, alpha.t())[None], [nNew, 1, 1]), Psi2new)
         )
         var = torch.reshape(var, (-1, 1)) + self.sigma_f ** 2 + sigma2 - mean ** 2
 
         return mean, var
+    
+    def train_step(self, optimizer):
+        elbo = self.compute_likelihood(self.X, self.Y) # use minibatch
+        optimizer.zero_grad()
+        loss = -elbo
+        loss.backward()
+        optimizer.step()
+        return elbo
+
+    @property
+    def variational_params(self):
+        return [dict(self.named_parameters())[key] for key in self.optimization_params_names]
+        #  return list(self.parameters())[-1] # likelihood.variance
