@@ -18,9 +18,17 @@ DATASET_TASK = {'boston': 'regression',
                 'wilt': 'classification',
                 'diabetes': 'classification'}
 
+def apply_pca(X, n_comp):
+    N = X.shape[0]
+    C = (1/N) * X.T @ X # N x N
+    A, P = np.linalg.eigh(C) # C = PAPᵀ
+    Pd = P[:, ::-1][:, 0:n_comp] # D x d
+    Z = X @ Pd # N x d
+    return Z, Pd
+
 class UCIDataset():
 
-    def __init__(self, dataset, k=-1, normalize=True, seed=0):
+    def __init__(self, dataset, k=-1, normalize=True, pca_latents=-1, seed=0):
         #dataset_path = ('./data/' + dataset + '.pth')
         logger.info(f'Loading dataset {dataset}')
         #dataset_loader = TensorDataset(*torch.load(f'data/uci/{dataset}.csv'))
@@ -46,6 +54,11 @@ class UCIDataset():
                 X_train, X_test = X[train_index], X[test_index]
                 Y_train, Y_test = Y[train_index], Y[test_index]
 
+                # Apply PCA
+                if pca_latents != -1:
+                    X_train, self.Pd = apply_pca(X_train, pca_latents) # fit_transform X_train
+                    X_test = X_test @ self.Pd # transform X_test
+
                 # Normalize data 
                 #X_train_mean, X_train_std = X_train.mean(0), X_train.std(0) + 1e-9
                 Y_train_mean, Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
@@ -55,6 +68,7 @@ class UCIDataset():
                     Y_train =  (Y_train - Y_train_mean) / Y_train_std  
                     Y_test =  (Y_test - Y_train_mean) / Y_train_std
 
+                
                 # Save data
                 self.X_train_kfold.append(torch.tensor(X_train, dtype=torch.float64))
                 self.X_test_kfold.append(torch.tensor(X_test, dtype=torch.float64))

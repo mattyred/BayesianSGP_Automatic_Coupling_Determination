@@ -5,7 +5,8 @@ import os
 import json
 import argparse
 import torch.optim as optim
-from src.datasets.uci_loader import UCIDataset, DATASET_TASK
+from src.datasets.uci_loader import UCIDataset
+from src.datasets.wcci_loader import WCCIDataset
 from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from src.misc.utils import ensure_dir, next_path, set_seed
@@ -51,8 +52,10 @@ def main(args):
             "max_iterations": params['max_iterations']
         })
         run_artifact = wandb.Artifact(f"exp_{params['dataset']}_VDMGP_K_{params['num_latents']}_params", type='VDMGP')
-
-    data_uci = UCIDataset(dataset=params['dataset'], k=params['kfold'], normalize=True, seed=0)
+    if params['dataset'] not in ['temp', 'so2']:
+        data = UCIDataset(dataset=params['dataset'], k=params['kfold'], normalize=True, seed=0)
+    else:
+        data = WCCIDataset(dataset=params['dataset'], k=params['kfold'], normalize=True, seed=0)
 
     # Results directory
     run_path = next_path(os.path.dirname('./results/' + '/run-%04d/'))
@@ -65,18 +68,14 @@ def main(args):
 
     for k in range(params['kfold']):
         print(f"\nFOLD {k+1} of {params['kfold']}")
-        X_train = data_uci.X_train_kfold[k]
-        X_test = data_uci.X_test_kfold[k]
-        Y_train = data_uci.Y_train_kfold[k]
-        Y_test = data_uci.Y_test_kfold[k]
-        Y_train_mean = data_uci.Y_train_mean_kfold[k]
-        Y_train_std = data_uci.Y_train_std_kfold[k]
+        X_train = data.X_train_kfold[k]
+        X_test = data.X_test_kfold[k]
+        Y_train = data.Y_train_kfold[k]
+        Y_test = data.Y_test_kfold[k]
+        Y_train_mean = data.Y_train_mean_kfold[k]
+        Y_train_std = data.Y_train_std_kfold[k]
         N = X_train.size(0)
         D = X_train.size(1)
-
-        # Folder initialization
-        fold_kernel_dir = os.path.join(kernel_dir, f'fold_{k}')
-        ensure_dir(fold_kernel_dir)
 
         # Model initialization
         num_latents = min(D, params['num_latents'])
@@ -116,7 +115,7 @@ def main(args):
         print('TEST NRMSE = %5.2f' % test_nrmse)
 
         # Save samples
-        save_samples(fold_kernel_dir, model, WTW=WTW, test_mnll=test_mnll, test_nrmse=test_nrmse, artifact=run_artifact, run=run, k=k)
+        save_samples(kernel_dir, model, WTW=WTW, test_mnll=test_mnll, test_nrmse=test_nrmse, artifact=run_artifact, run=run, k=k)
 
         
     if WANDB:
@@ -126,12 +125,12 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
-    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes"], default="boston")
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes", "temp"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
-    parser.add_argument('--num_latents', type=int, default=10)
+    parser.add_argument('--num_latents', type=int, default=20)
     parser.add_argument('--num_inducing', type=int, default=10)
     parser.add_argument('--adam_lr', type=float, default=0.01)
     parser.add_argument('--kfold', type=int, default=3)
-    parser.add_argument('--max_iterations', type=int, default=2000)
+    parser.add_argument('--max_iterations', type=int, default=20)
     args = parser.parse_args()
     main(args)

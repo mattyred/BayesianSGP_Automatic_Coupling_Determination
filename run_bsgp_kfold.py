@@ -37,6 +37,7 @@ def save_samples(folder_path, model, **kwargs):
     npz_dict = {param_name: kernel_cov_data,
                 'D': D_in,
                 'kernel': model.kern.rbf_type,
+                'Pd': kwargs['Pd'],
                 'prior': kernel_prior,
                 'test_mnll':  kwargs['test_mnll'],
                 'test_error_rate': kwargs['test_error_rate'],
@@ -51,7 +52,6 @@ def save_samples(folder_path, model, **kwargs):
     filepath = os.path.join(folder_path, f'kernel_samples_fold_{kwargs["k"]}')
     # Save locally
     np.savez(filepath, **npz_dict)
-    print(WANDB)
     if WANDB:
       # Upload to wandb
       kwargs['artifact'].add_file(filepath + '.npz')
@@ -72,6 +72,7 @@ def main(args):
     params['model'] = args.model
     params['dataset'] = args.dataset
     params['num_inducing'] = args.num_inducing
+    params['pca_latents'] = args.pca_latents
 
     run = None
     run_artifact = None
@@ -95,7 +96,7 @@ def main(args):
     dataset_name = params['dataset']
     assert dataset_name in DATASET_TASK.keys()
     task = DATASET_TASK[dataset_name]
-    data_uci = UCIDataset(dataset=dataset_name, k=params['kfold'], normalize=True, seed=0)
+    data_uci = UCIDataset(dataset=dataset_name, k=params['kfold'], normalize=True, pca_latents=params['pca_latents'], seed=0)
 
     # ACD prior args
     prior_kernel = None
@@ -217,7 +218,8 @@ def main(args):
                      test_mnll=test_mnll,
                      test_error_rate=test_error_rate,
                      test_nrmse=test_nrmse,
-                     validation_metrics_dict=validation_metrics_dict)
+                     validation_metrics_dict=validation_metrics_dict,
+                     Pd = data_uci.Pd)
         
     if WANDB:
       run.log_artifact(run_artifact)
@@ -231,5 +233,6 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
     parser.add_argument('--num_inducing', type=int, default=500)
+    parser.add_argument('--pca_latents', type=int, default=-1)
     args = parser.parse_args()
     main(args)
