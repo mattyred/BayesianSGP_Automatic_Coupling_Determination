@@ -44,7 +44,7 @@ def main(args):
         # Init Wandb run
         run = wandb.init(
         project="BSGPtorch-wandb",
-        name=f"exp_{params['dataset']}_{params['model']}_{args.experiment}",
+        name=f"exp_{params['dataset']}_VDMGP_K_{params['num_latents']}",
         config={
             "adam_lr": params['adam_lr'],
             "dataset": params['dataset'],
