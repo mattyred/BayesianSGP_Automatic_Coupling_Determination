@@ -28,13 +28,11 @@ from ..core.likelihoods import Gaussian
 from ..core.kernels import RBF
 
 class VDMGP(nn.Module):
-    def __init__(self, X, Y, M, K, minibatch_size=None, **kwargs):
+    def __init__(self, X, Y, M, K, **kwargs):
         """
         - X is a data matrix, size N x D
         - Y is a data matrix, size N x R
         """
-        # sort out the X, Y into MiniBatch objects if required.
-        self.minibatch_size = minibatch_size
 
         # init the super class, accept args
         super(VDMGP, self).__init__()
@@ -47,17 +45,18 @@ class VDMGP(nn.Module):
         
         # init variational parameters
         pca_components = torch.tensor(PCA(self.K).fit(X).components_, device=X.device) # K x D
-        input_scales = (10 / np.ptp(torch.mm(X, pca_components.t()), axis=0) ** 2).reshape(-1, 1) # 1 x 1
+        input_scales = (10 / np.ptp(torch.matmul(X, pca_components.t()), axis=0) ** 2).reshape(-1, 1) # 1 x 1
     
         self.q_mu = parameter.Param(pca_components * input_scales) # K x D
         self.q_cov = parameter.PositiveParam((1 / self.D + (0.001 / self.D) * torch.randn(self.K, self.D))) # K x D
 
         # init inducing points
-        inducing_points_init = torch.tensor(kmeans2(torch.mm(X, self.q_mu.get().t()).detach().numpy(), self.M, minit='points')[0], dtype=torch.float64) # M x K
+        inducing_points_init = torch.tensor(kmeans2(torch.matmul(X, self.q_mu.get().t()).detach().numpy(), self.M, 
+        minit='points')[0], dtype=torch.float64) # M x K
         self.Z = nn.parameter.Parameter(inducing_points_init.double(), requires_grad=True) # M x K
 
         # init gaussian likelihood
-        self.likelihood = Gaussian(dtype=torch.float64)
+        self.likelihood = Gaussian(variance = 0.01 * torch.std(Y), dtype=torch.float64)
 
         # init RBF-ARD kernel
         self.sigma_f = parameter.PositiveParam(torch.std(Y))
@@ -94,7 +93,7 @@ class VDMGP(nn.Module):
             q_mu_X[:, :, None, None], Z_bar.permute(2, 0, 1)[:, None, :, :]
         ) ** 2 # K x N x M x M
 
-        bot = (2 * torch.sum(self.q_cov.get()[:, None, :] * torch.pow(X[None], 2), axis=2) + 1)  # K x N
+        bot = 2 * torch.sum(self.q_cov.get()[:, None, :] * torch.pow(X[None], 2), axis=2) + 1  # K x N
 
         bot = bot[:, :, None, None] # K x N x 1 x 1 identity()?
 
@@ -118,6 +117,12 @@ class VDMGP(nn.Module):
         output = torch.multiply(A, mask)
         batch_trace = torch.sum(output,axis=(1,2))
         return batch_trace
+    
+    def cholesky_logdet(self, chol, name=None):
+        return torch.multiply(
+            2,
+            torch.sum(torch.log(torch.diagonal(chol)), axis=-1)
+        )
 
     def compute_likelihood(self, X=None, Y=None, jitter_level=1e-6):
         N = X.shape[0]
@@ -132,31 +137,31 @@ class VDMGP(nn.Module):
         F1 = (
             - N * torch.log(2 * pi)
             - (N - M) * torch.log(sigma2)
-            + torch.logdet(chol_Ku) # use cholesky_logdet() of deep VDMGP
+            + self.cholesky_logdet(chol_Ku)
         ) # 1 x 1
 
-        YY = torch.mm(Y.t(), Y) # 1 x 1
+        YY = torch.matmul(Y.t(), Y) # 1 x 1
 
         psi2 = self.compute_psi2(X) # M x M
 
         Ku_Psi2 = sigma2 * Kuu + psi2 + torch.eye(M, dtype=X.dtype, device=X.device) * jitter_level # M x M
-        chol_Ku_Psi2 = torch.linalg.cholesky(Ku_Psi2) # M x M
+        chol_Ku_Psi2 = torch.linalg.cholesky(Ku_Psi2, upper=False) # M x M
 
-        F1 += -torch.logdet(chol_Ku_Psi2) - YY / sigma2 # use cholesky_logdet() of deep VDMGP
+        F1 += -self.cholesky_logdet(chol_Ku_Psi2) - YY / sigma2
 
         psi1 = self.compute_psi1(X) # N x M
 
-        Psi1_Y = torch.mm(psi1.t(), Y) # M x 1
+        Psi1_Y = torch.matmul(psi1.t(), Y) # M x 1
 
         F1 += torch.divide(
-            torch.mm(
-                Psi1_Y.t(), torch.linalg.solve(chol_Ku_Psi2, Psi1_Y)), # tf.cholesky_solve()
+            torch.matmul(
+                Psi1_Y.t(), torch.cholesky_solve(Psi1_Y, chol_Ku_Psi2)),
             sigma2,
         )
 
         psi0 = self.compute_psi0(X)
 
-        KuiPsi2 = torch.linalg.solve(chol_Ku, psi2) # M x M # tf.cholesky_solve()
+        KuiPsi2 = torch.cholesky_solve(psi2, chol_Ku) # M x M
 
         F1 += -psi0 / sigma2 + torch.trace(KuiPsi2) / sigma2
 
@@ -184,35 +189,49 @@ class VDMGP(nn.Module):
         psi2 = self.compute_psi2(self.X)
 
         Ku_Psi2 = sigma2 * Kuu + psi2 + torch.eye(M, dtype=self.X.dtype, device=self.X.device) * jitter_level # M x M
-        chol_Ku_Psi2 = torch.linalg.cholesky(Ku_Psi2) # M x M
+        chol_Ku_Psi2 = torch.linalg.cholesky(Ku_Psi2, upper=False) # M x M
 
-        Psi1_Y = torch.mm(psi1.t(), self.Y) # M x 1
-        alpha = torch.linalg.solve(chol_Ku_Psi2, Psi1_Y) # M x 1
+        Psi1_Y = torch.matmul(psi1.t(), self.Y) # M x 1
+        alpha = torch.cholesky_solve(Psi1_Y, chol_Ku_Psi2) # M x 1
 
         Psi1new = self.compute_psi1(Xnew) # N x M
 
-        mean = torch.mm(Psi1new, alpha) # N x 1
+        mean = torch.matmul(Psi1new, alpha) # N x 1
 
         Psi2new = self.compute_batched_psi2(Xnew) # N x M x M
         var = self.compute_batch_trace( # compute trace of N x M x M tensor
             sigma2
-            * torch.linalg.solve(torch.tile(chol_Ku_Psi2[None], [nNew, 1, 1]), Psi2new)
-            - torch.linalg.solve(torch.tile(chol_Ku[None], [nNew, 1, 1]), Psi2new)
+            * torch.cholesky_solve(Psi2new, torch.tile(chol_Ku_Psi2[None], [nNew, 1, 1]))
+            - torch.cholesky_solve(Psi2new, torch.tile(chol_Ku[None], [nNew, 1, 1]))
             + torch.matmul(torch.tile(torch.matmul(alpha, alpha.t())[None], [nNew, 1, 1]), Psi2new)
         )
-        var = torch.reshape(var, (-1, 1)) + self.sigma_f ** 2 + sigma2 - mean ** 2
+        var = torch.reshape(var, (-1, 1)) + self.sigma_f.get() ** 2 + sigma2 - mean ** 2
 
         return mean, var
     
+    def sample_W(self, samples=200):
+        sampled_W = torch.normal(self.q_mu.get().unsqueeze(0).expand(samples, -1, -1),  
+                                 self.q_cov.get().unsqueeze(0).expand(samples, -1, -1))
+
+        return sampled_W
+
     def train_step(self, optimizer):
-        elbo = self.compute_likelihood(self.X, self.Y) # use minibatch
+        elbo = self.compute_likelihood(self.X, self.Y)
         optimizer.zero_grad()
-        loss = -elbo
+        loss = -elbo        
         loss.backward()
         optimizer.step()
         return elbo
 
+    def __str__(self):
+        str = [
+            ' VDMGP',
+            ' Input dim. = %d' % self.D,
+            ' Num. latents = %d' % self.K,
+            ' Inducing points = %d' % self.M
+            ]
+        return 'Model:' + '\n'.join(str)
+    
     @property
     def variational_params(self):
         return [dict(self.named_parameters())[key] for key in self.optimization_params_names]
-        #  return list(self.parameters())[-1] # likelihood.variance

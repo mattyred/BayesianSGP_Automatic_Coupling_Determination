@@ -70,6 +70,8 @@ class UCIDataset():
             Y_train, Y_test = Y[train_indices], Y[test_indices]
 
             self.Y_train_mean, self.Y_train_std = Y_train.mean(0), Y_train.std(0) + 1e-9
+            Y_train =  (Y_train - self.Y_train_mean) / self.Y_train_std  
+            Y_test =  (Y_test - self.Y_train_mean) / self.Y_train_std
 
             # Save data
             self.X_train = torch.tensor(X_train, dtype=torch.float64)

@@ -24,15 +24,13 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
     elif task == 'classification':
         lik = Bernoulli()
 
-    # define kernel
-    if params['kernel_type'] == 'ACD':
-        kern = RBF(input_dim=D_in, ACD=True)
-    elif params['kernel_type'] == 'ARD':
-        kern = RBF(input_dim=D_in, ARD=True)
-
     # define model
-    mb_size = params['minibatch_size'] if N > params['minibatch_size'] else N
     if model == 'BSGP':
+        if params['kernel_type'] == 'ACD':
+            kern = RBF(input_dim=D_in, ACD=True)
+        elif params['kernel_type'] == 'ARD':
+            kern = RBF(input_dim=D_in, ARD=True)
+        mb_size = params['minibatch_size'] if N > params['minibatch_size'] else N
         model = BSGP(X=X, Y=Y,
                     kernel=kern,
                     likelihood=lik,
@@ -46,6 +44,11 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
                     inducing_points_init=None,
                     full_cov=params['full_cov'])
     elif model == 'BGP':
+        if params['kernel_type'] == 'ACD':
+            kern = RBF(input_dim=D_in, ACD=True)
+        elif params['kernel_type'] == 'ARD':
+            kern = RBF(input_dim=D_in, ARD=True)
+        mb_size = params['minibatch_size'] if N > params['minibatch_size'] else N
         model = BGP(X=X, Y=Y,
                 kernel=kern,
                 likelihood=lik,
@@ -57,7 +60,7 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
                 full_cov=params['full_cov'],
                 task=task)
     elif model =='VDMGP':
-        model = VDMGP(X=X, Y=Y, M=params['num_inducing'], K=num_latents, minibatch_size=mb_size)
+        model = VDMGP(X=X, Y=Y, M=params['num_inducing'], K=num_latents)
     return  model
 
 
