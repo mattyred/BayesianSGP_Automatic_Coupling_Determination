@@ -116,7 +116,7 @@ def main(args):
         print('TEST NRMSE = %5.2f' % test_nrmse)
 
         # Save samples
-        save_samples(fold_kernel_dir, model, WTW=WTW, test_mnll=test_mnll, test_nrmse=test_nrmse, artifact=run_artifact)
+        save_samples(fold_kernel_dir, model, WTW=WTW, test_mnll=test_mnll, test_nrmse=test_nrmse, artifact=run_artifact, run=run)
 
         
     if WANDB:
