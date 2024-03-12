@@ -21,7 +21,7 @@ def save_samples(folder_path, model, **kwargs):
                 'WTW': kwargs['WTW'],
                 'test_mnll':  kwargs['test_mnll'],
                 'test_nrmse': kwargs['test_nrmse']}
-    filepath = os.path.join(folder_path, 'vdmgp_data')
+    filepath = os.path.join(folder_path, f'vdmgp_data_fold_{kwargs["k"]}')
     np.savez(filepath, **npz_dict)
     if WANDB:
       # Upload to wandb
@@ -116,7 +116,7 @@ def main(args):
         print('TEST NRMSE = %5.2f' % test_nrmse)
 
         # Save samples
-        save_samples(fold_kernel_dir, model, WTW=WTW, test_mnll=test_mnll, test_nrmse=test_nrmse, artifact=run_artifact, run=run)
+        save_samples(fold_kernel_dir, model, WTW=WTW, test_mnll=test_mnll, test_nrmse=test_nrmse, artifact=run_artifact, run=run, k=k)
 
         
     if WANDB:
