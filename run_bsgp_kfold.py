@@ -230,7 +230,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
     parser.add_argument('--experiment', type=str, default="")
     parser.add_argument('--model', type=str, choices=["BSGP", "BGP"], default="BSGP")
-    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes"], default="boston")
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg", "wilt", "diabetes", "puma"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
     parser.add_argument('--num_inducing', type=int, default=500)
     parser.add_argument('--pca_latents', type=int, default=-1)

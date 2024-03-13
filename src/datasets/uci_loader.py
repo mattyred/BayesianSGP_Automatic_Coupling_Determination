@@ -13,6 +13,7 @@ DATASET_TASK = {'boston': 'regression',
                 'powerplant': 'regression',
                 'kin8nm': 'regression',
                 'concrete': 'regression',
+                'puma': 'regression',
                 'breast': 'classification',
                 'eeg': 'classification',
                 'wilt': 'classification',
@@ -55,6 +56,7 @@ class UCIDataset():
                 Y_train, Y_test = Y[train_index], Y[test_index]
 
                 # Apply PCA
+                self.Pd = None
                 if pca_latents != -1:
                     X_train, self.Pd = apply_pca(X_train, pca_latents) # fit_transform X_train
                     X_test = X_test @ self.Pd # transform X_test

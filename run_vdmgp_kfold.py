@@ -125,7 +125,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='experiment-wandb')
-    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes", "temp"], default="boston")
+    parser.add_argument('--dataset', type=str, choices=["boston", "kin8nm", "powerplant", "concrete", "breast", "eeg","wilt", "diabetes", "temp", "puma"], default="boston")
     parser.add_argument('--use_wandb', action='store_true')
     parser.add_argument('--num_latents', type=int, default=20)
     parser.add_argument('--num_inducing', type=int, default=10)
