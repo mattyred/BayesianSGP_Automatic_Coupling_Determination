@@ -8,8 +8,8 @@ from src.datasets.uci_loader import UCIDataset, DATASET_TASK
 from src.model_builder import build_model, compute_mnll, compute_accuracy, compute_nrmse
 from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from src.misc.utils import ensure_dir, next_path, set_seed
-from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter()
+#from torch.utils.tensorboard import SummaryWriter
+#writer = SummaryWriter()
 
 set_seed(0)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -164,13 +164,13 @@ def main(args):
                 with torch.no_grad():
                     y_mean, y_var = model.predict(X_test.to(device))
                     ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
-                    writer.add_scalar(f"chain_{chain+1}/train/lik-variance", model.likelihood.variance.get().numpy(), iter)
-                    writer.add_scalar(f"chain_{chain+1}/train/Train LL", ll.item(), iter)
-                    writer.add_scalar(f"chain_{chain+1}/test/pred-post-sample-0", ms[0,0], iter)
-                    writer.add_scalar(f"chain_{chain+1}/test/pred-post-sample-2", ms[0,2], iter)
+                    #writer.add_scalar(f"chain_{chain+1}/train/lik-variance", model.likelihood.variance.get().numpy(), iter)
+                    #writer.add_scalar(f"chain_{chain+1}/train/Train LL", ll.item(), iter)
+                    #writer.add_scalar(f"chain_{chain+1}/test/pred-post-sample-0", ms[0,0], iter)
+                    #writer.add_scalar(f"chain_{chain+1}/test/pred-post-sample-2", ms[0,2], iter)
                     test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std, task=task)
                     test_mnll_iter.append(test_mnll)
-                    writer.add_scalar(f"chain_{chain+1}/test/Test MNLL", test_mnll, iter)
+                    #writer.add_scalar(f"chain_{chain+1}/test/Test MNLL", test_mnll, iter)
                     if task == 'classification':
                         accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
                         test_error_rate = 1 - accuracy
@@ -210,7 +210,7 @@ def main(args):
                         test_predictions=ms,
                         validation_metrics_dict=validation_metrics_dict,
                         Pd = data_uci.Pd)
-        writer.flush()
+        #writer.flush()
 
 
 if __name__ == '__main__':

@@ -29,7 +29,7 @@ def apply_pca(X, n_comp):
 
 class UCIDataset():
 
-    def __init__(self, dataset, k=-1, normalize=True, pca_latents=-1, seed=0):
+    def __init__(self, dataset, k=-1, normalize=True, pca_latents=-1, load_static_split=False, seed=0):
         #dataset_path = ('./data/' + dataset + '.pth')
         logger.info(f'Loading dataset {dataset}')
         #dataset_loader = TensorDataset(*torch.load(f'data/uci/{dataset}.csv'))
@@ -79,9 +79,14 @@ class UCIDataset():
                 self.Y_train_mean_kfold.append(Y_train_mean)
                 self.Y_train_std_kfold.append(Y_train_std)
         else:
-            X_train_indices_boolean = np.random.choice([1, 0], size=X.shape[0], p=[0.8, 0.2])
-            train_indices = np.where(X_train_indices_boolean == 1)[0]
-            test_indices = np.where(X_train_indices_boolean == 0)[0]
+            if load_static_split:
+                static_split = np.load(f'data/uci/static_folds/{dataset}.npz')
+                train_indices = static_split['train_indices']
+                test_indices = static_split['test_indices']
+            else:
+                X_train_indices_boolean = np.random.choice([1, 0], size=X.shape[0], p=[0.8, 0.2])
+                train_indices = np.where(X_train_indices_boolean == 1)[0]
+                test_indices = np.where(X_train_indices_boolean == 0)[0]
             X_train, X_test = X[train_indices], X[test_indices]
             Y_train, Y_test = Y[train_indices], Y[test_indices]
 
@@ -100,4 +105,5 @@ class UCIDataset():
                 X_train, Pd = apply_pca(X_train, pca) # fit_transform X_train
                 X_test = X_test @ Pd # transform X_test
             """
+            self.Pd = None
 
