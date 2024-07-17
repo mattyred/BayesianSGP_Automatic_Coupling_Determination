@@ -20,7 +20,7 @@ def build_model(X, Y, params, model='BSGP', task='regression', prior_kernel=None
 
     # define likelihood
     if task == 'regression':
-        lik = Gaussian(dtype=torch.float64)
+        lik = Gaussian(variance=torch.var(Y,0), dtype=torch.float64)
     elif task == 'classification':
         lik = Bernoulli()
 
