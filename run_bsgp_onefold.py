@@ -59,7 +59,7 @@ def save_samples(folder_path, model, **kwargs):
 
 def main(args):
     # Read experiment parameters
-    os.chdir('./BSGPtorch')
+    #os.chdir('./BSGPtorch') for lightining.ai
     params_folder = './experiments'
     with open(os.path.join(params_folder,'defaults.json'), 'r') as file:
       default_params = json.load(file)
