@@ -225,7 +225,7 @@ class BSGP(nn.Module):
         loss = -log_prob
         loss.backward()
         if clip_value is not None:
-            self._clip_grad_value(self.optim_params, clip_value)
+            torch.nn.utils.clip_grad_norm_(self.optim_params, clip_value)
         optimizer.step()
         return log_prob
 
