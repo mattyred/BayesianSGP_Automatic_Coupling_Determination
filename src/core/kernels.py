@@ -72,7 +72,7 @@ class RBF(Kern):
     def __init__(self, input_dim, variance=1.0, init_val=None,
                  active_dims=None, ARD=False, ACD=False, name=None):
         super(RBF, self).__init__(input_dim, active_dims, name=name)
-        self.variance = parameter.PositiveParam(variance)
+        self.variance = parameter.PositiveParam(torch.tensor([variance], dtype=torch.float64))
         if ACD:
             low_tri_shape  = (self.input_dim*(self.input_dim+1)//2,) 
             if init_val is None:

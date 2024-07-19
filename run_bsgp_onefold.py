@@ -160,7 +160,7 @@ def main(args):
                 ll_iter.append(ll.item())
 
             # Validation
-            if iter % 500 == 0:
+            if iter % 50 == 0:
                 with torch.no_grad():
                     y_mean, y_var = model.predict(X_test.to(device))
                     ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
