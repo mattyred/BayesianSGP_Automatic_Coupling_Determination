@@ -160,7 +160,7 @@ def main(args):
 
             log_prob = model.train_step(device, bsgp_sampler, K=params['K'], clip_value=clip_value)
             if len(model.optimization_params_names) > 0:
-                log_prob = model.optimizer_step(device, bsgp_optimizer, clip_value=None)
+                log_prob = model.optimizer_step(device, bsgp_optimizer, clip_value=100)
 
             if (iter > params['n_burnin_iters']) and (iter % params['collect_every'] == 0):
                 model.save_sample(fold_samples_dir, sample_idx)
