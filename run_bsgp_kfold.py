@@ -3,6 +3,7 @@ import wandb
 import numpy as np
 import os
 import json
+import time
 import argparse
 import torch.optim as optim
 from src.datasets.uci_loader import UCIDataset, DATASET_TASK
@@ -11,6 +12,7 @@ from src.samplers.adaptative_sghmc import AdaptiveSGHMC
 from src.misc.utils import ensure_dir, next_path, set_seed
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+validation = False
 
 def save_samples(folder_path, model, **kwargs):
     S = len(model.gp_samples)
@@ -41,7 +43,9 @@ def save_samples(folder_path, model, **kwargs):
                 'prior': kernel_prior,
                 'test_mnll':  kwargs['test_mnll'],
                 'test_error_rate': kwargs['test_error_rate'],
-                'test_nrmse': kwargs['test_nrmse']}
+                'test_nrmse': kwargs['test_nrmse'],
+                'train_time': kwargs['train_time'],
+                'test_time': kwargs['test_time']}
     
     # Store validation metrics
     for metric_key in kwargs['validation_metrics_dict'].keys():
@@ -156,6 +160,7 @@ def main(args):
         ll_iter = []
         iter = 0
         sample_idx = 0
+        train_start_time = time.time()
         for iter in range(n_sampling_iters):
 
             log_prob = model.train_step(device, bsgp_sampler, K=params['K'], clip_value=clip_value)
@@ -173,26 +178,29 @@ def main(args):
                 ll_iter.append(ll.item())
 
             # Validation
-            if iter % 10 == 0:
-                with torch.no_grad():
-                    y_mean, y_var = model.predict(X_test.to(device))
-                    ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
-                    test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std, task=task)
-                    test_mnll_iter.append(test_mnll)
-                    #print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
-                    if task == 'classification':
-                        accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
-                        test_error_rate = 1 - accuracy
-                        test_error_rate_iter.append(test_error_rate)
-                        #print('TEST\t| iter = %6d\t Error-Rate =\t %5.2f%%' % (iter, test_error_rate*100))
-                    elif task == 'regression':
-                        test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=1, ystd=Y_train_std)
-                        test_nrmse_iter.append(test_nrmse)
+            if validation:
+                if iter % 10 == 0:
+                    with torch.no_grad():
+                        y_mean, y_var = model.predict(X_test.to(device))
+                        ms, vs = np.stack([y_mean.cpu().detach()], 0), np.stack([y_var.cpu().detach()], 0)
+                        test_mnll = compute_mnll(ms, vs, Y_test.numpy(), 1, Y_train_std, task=task)
+                        test_mnll_iter.append(test_mnll)
+                        #print('TEST\t| iter = %6d\t MNLL =\t %5.2f' % (iter, test_mnll))
+                        if task == 'classification':
+                            accuracy = compute_accuracy(ms, vs, Y_test.numpy(), 1, Y_train_std)
+                            test_error_rate = 1 - accuracy
+                            test_error_rate_iter.append(test_error_rate)
+                            #print('TEST\t| iter = %6d\t Error-Rate =\t %5.2f%%' % (iter, test_error_rate*100))
+                        elif task == 'regression':
+                            test_nrmse = compute_nrmse(ms, vs, Y_test.numpy(), num_posterior_samples=1, ystd=Y_train_std)
+                            test_nrmse_iter.append(test_nrmse)
             iter += 1
-
+        train_end_time = time.time()
         # MNLL performance
         model.set_samples(fold_samples_dir, cache=True)
+        test_start_time = time.time()
         ms, vs = model.predict_y(X_test.to(device))
+        test_end_time = time.time()
         # ms: [num_posterior_samples, Ntest, 1] on column j prediction for data sample j
         test_mnll = compute_mnll(ms, vs, Y_test.numpy(), len(model.gp_samples), Y_train_std, task=task)
         print('\nTEST MNLL =\t %5.2f' % (test_mnll))
@@ -219,7 +227,9 @@ def main(args):
                      test_error_rate=test_error_rate,
                      test_nrmse=test_nrmse,
                      validation_metrics_dict=validation_metrics_dict,
-                     Pd = data_uci.Pd)
+                     Pd = data_uci.Pd,
+                     train_time=train_end_time-train_start_time,
+                     test_time=test_end_time-test_start_time)
         
     if WANDB:
       run.log_artifact(run_artifact)
