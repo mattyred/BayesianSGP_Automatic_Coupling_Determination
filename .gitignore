@@ -25,4 +25,7 @@ poetry.lock
 .idea/
 
 # vscode
-.vscode
+.vscode/
+
+# Ignore macOS Finder metadata
+.DS_Store

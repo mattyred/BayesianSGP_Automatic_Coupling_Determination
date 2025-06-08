@@ -1,6 +1,8 @@
 # Sparse Bayesian Gaussian Process (BSGP) with Bayesian Inference of Covariate Couplings
 
-This is the repository for the work on Sparse GPs with Bayesian inference of covariate couplings: we develop covariances characterized by affine transformations of the inputs, formalized via a precision matrix between covariates, which can uncover covariate couplings for enhanced interpretability. We study a range of couplings priors from Wishart to Horseshoe and present fully Bayesian inference of such precision matrices within sparse Gaussian process.
+This is the repository for the work on Sparse GPs with Bayesian inference of covariate couplings: we develop covariances characterized by affine transformations of the inputs, formalized via a precision matrix between covariates, which can uncover covariate couplings for enhanced interpretability. We study a range of couplings priors from Wishart to Horseshoe and present fully Bayesian inference of such precision matrices within sparse Gaussian process. We name this approach Automatic Coupling Determination (ACD)
+
+![](./assets/example_from_paper.png.png "ARD vs ACD")
 
 ## Features
 
@@ -16,7 +18,7 @@ cd BayesianSGP_Covariate_Couplings_Determination
 pip install -r requirements.txt
 ```
 
-# Reproduce results
+## Reproduce results
 
 ```bash
 python train_bsgp_kfold.py \
